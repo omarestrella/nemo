@@ -1,0 +1,17 @@
+{
+  "name": "dokku-nemo",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot src/index.ts serve --state-dir .nemo-agent",
+    "start": "bun src/index.ts serve",
+    "test": "bun test",
+    "test:docker": "bun test tests/docker/dokku-agent.test.ts",
+    "build:linux-x64": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/nemo-agent-linux-x64",
+    "build:linux-arm64": "bun build --compile --target=bun-linux-arm64 src/index.ts --outfile dist/nemo-agent-linux-arm64"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

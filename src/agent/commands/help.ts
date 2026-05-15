@@ -1,0 +1,16 @@
+import { AGENT_VERSION } from "../types";
+
+export function printHelp(): void {
+  console.log(`nemo-agent ${AGENT_VERSION}
+
+Usage:
+  nemo-agent init [--state-dir PATH]
+  nemo-agent doctor [--fix] [--state-dir PATH] [--dokku-bin PATH]
+  nemo-agent status [--state-dir PATH]
+  nemo-agent serve [--state-dir PATH] [--host 127.0.0.1] [--port 7331]
+  nemo-agent pair start --name "Device" [--ttl 10m] [--endpoint URL]
+  nemo-agent pair list
+  nemo-agent pair cancel <pairing-id>
+  nemo-agent credential list
+  nemo-agent credential revoke <credential-id>`);
+}
