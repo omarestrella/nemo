@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { chmod, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Stats } from "node:fs";
 
 import {
   digestCredentialSecret,
@@ -53,6 +54,7 @@ export interface AgentStateOptions {
   stateDir: string;
   databasePath?: string;
   secretPath?: string;
+  repairUnsafeLayout?: boolean;
 }
 
 export interface PairingStartOptions {
@@ -88,6 +90,10 @@ export interface StatePaths {
   secretPath: string;
 }
 
+export interface EnsureStateLayoutOptions {
+  repairUnsafe?: boolean;
+}
+
 export function resolveStatePaths(options: AgentStateOptions): StatePaths {
   return {
     stateDir: options.stateDir,
@@ -96,23 +102,25 @@ export function resolveStatePaths(options: AgentStateOptions): StatePaths {
   };
 }
 
-export async function ensureStateLayout(paths: StatePaths): Promise<void> {
-  mkdirSync(paths.stateDir, { recursive: true, mode: 0o700 });
-  chmodSync(paths.stateDir, 0o700);
+export async function ensureStateLayout(paths: StatePaths, options: EnsureStateLayoutOptions = {}): Promise<void> {
+  const repairUnsafe = options.repairUnsafe ?? false;
+  await mkdir(paths.stateDir, { recursive: true, mode: 0o700 });
+  await ensureMode(paths.stateDir, 0o700, repairUnsafe);
 
   if (!(await Bun.file(paths.secretPath).exists())) {
     await Bun.write(paths.secretPath, `${randomHex(SERVER_SECRET_BYTES)}\n`);
-    chmodSync(paths.secretPath, 0o600);
+    await chmod(paths.secretPath, 0o600);
   } else {
-    chmodSync(paths.secretPath, 0o600);
+    await ensureMode(paths.secretPath, 0o600, repairUnsafe);
   }
 }
 
-export function inspectPathMode(path: string): number | null {
-  if (!existsSync(path)) {
+export async function inspectPathMode(path: string): Promise<number | null> {
+  const info = await statPath(path);
+  if (!info) {
     return null;
   }
-  return statSync(path).mode & 0o777;
+  return info.mode & 0o777;
 }
 
 export class AgentState {
@@ -128,13 +136,17 @@ export class AgentState {
 
   static async open(options: AgentStateOptions): Promise<AgentState> {
     const paths = resolveStatePaths(options);
-    await ensureStateLayout(paths);
+    await ensureStateLayout(paths, { repairUnsafe: options.repairUnsafeLayout });
     const serverSecretHex = (await Bun.file(paths.secretPath).text()).trim();
+    const databaseExisted = await Bun.file(paths.databasePath).exists();
     const db = new Database(paths.databasePath, { create: true });
+    if (!databaseExisted) {
+      await chmod(paths.databasePath, 0o600);
+    }
     const state = new AgentState(paths, db, serverSecretHex);
     state.migrate();
     state.ensureInstanceId();
-    chmodSync(paths.databasePath, 0o600);
+    await ensureMode(paths.databasePath, 0o600, options.repairUnsafeLayout ?? false);
     return state;
   }
 
@@ -421,4 +433,31 @@ async function fakePairingVerify(code: string): Promise<void> {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+async function ensureMode(path: string, expectedMode: number, repairUnsafe: boolean): Promise<void> {
+  const actualMode = await inspectPathMode(path);
+  if (actualMode === null) {
+    return;
+  }
+  if (actualMode === expectedMode) {
+    return;
+  }
+  if (!repairUnsafe) {
+    throw new Error(
+      `${path} has unsafe mode ${actualMode.toString(8)}; expected ${expectedMode.toString(8)}. Run doctor --fix as the owning user to repair.`,
+    );
+  }
+  await chmod(path, expectedMode);
+}
+
+async function statPath(path: string): Promise<Stats | null> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }

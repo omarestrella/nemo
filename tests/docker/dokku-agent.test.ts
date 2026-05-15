@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const DOKKU_IMAGE = Bun.env.NEMO_DOKKU_IMAGE ?? "dokku/dokku:0.38.2";
@@ -7,6 +7,7 @@ const DOKKU_HOSTNAME = "dokku.test";
 const TEST_APP = "nemo-docker-test";
 const CONTAINER_AGENT_PATH = "/usr/local/bin/nemo-agent";
 const CONTAINER_STATE_DIR = "/var/lib/nemo-agent-test";
+const CONTAINER_WRAPPER_PATH = "/usr/local/lib/nemo-agent/dokku-readonly";
 const CONTAINER_AGENT_PORT = 7331;
 const TEST_DHPARAM_PEM = `-----BEGIN DH PARAMETERS-----
 MIIBDAKCAQEAsXw5FQDGCBNe7405/kjr+vnA18tQNDb2NN76hKdtx4c6TGBGMHdL
@@ -36,7 +37,7 @@ describe("nemo-agent Dokku Docker integration", () => {
     containerName = `nemo-dokku-test-${runId}`;
     dokkuDataDir = resolve(dockerTestDir, `dokku-data-${runId}`);
     containerStarted = false;
-    mkdirSync(resolve(dokkuDataDir, "etc/nginx"), { recursive: true });
+    await mkdir(resolve(dokkuDataDir, "etc/nginx"), { recursive: true });
     await Bun.write(
       resolve(dokkuDataDir, "etc/nginx/dhparam.pem"),
       TEST_DHPARAM_PEM,
@@ -51,7 +52,7 @@ describe("nemo-agent Dokku Docker integration", () => {
     }
     if (Bun.env.NEMO_DOCKER_KEEP_CONTAINER !== "1") {
       try {
-        rmSync(dokkuDataDir, { recursive: true, force: true });
+        await rm(dokkuDataDir, { recursive: true, force: true });
       } catch (error) {
         console.warn(
           `Could not remove ${dokkuDataDir}: ${error instanceof Error ? error.message : String(error)}`,
@@ -143,6 +144,9 @@ describe("nemo-agent Dokku Docker integration", () => {
           CONTAINER_STATE_DIR,
           `${CONTAINER_STATE_DIR}/server-secret`,
           `${CONTAINER_STATE_DIR}/nemo-agent.db`,
+          CONTAINER_WRAPPER_PATH,
+          "/etc/sudoers.d/nemo-agent",
+          "/etc/systemd/system/nemo-agent.service",
         ]);
         assert(
           modeOutput.stdout.includes(`700 ${CONTAINER_STATE_DIR}`),
@@ -159,6 +163,43 @@ describe("nemo-agent Dokku Docker integration", () => {
             `600 ${CONTAINER_STATE_DIR}/nemo-agent.db`,
           ),
           "Database must be mode 600",
+        );
+        assert(
+          modeOutput.stdout.includes(`755 ${CONTAINER_WRAPPER_PATH}`),
+          "Dokku wrapper must be mode 755",
+        );
+        assert(
+          modeOutput.stdout.includes("440 /etc/sudoers.d/nemo-agent"),
+          "sudoers rule must be mode 440",
+        );
+        assert(
+          modeOutput.stdout.includes("644 /etc/systemd/system/nemo-agent.service"),
+          "systemd unit must be mode 644",
+        );
+
+        await exec([CONTAINER_WRAPPER_PATH, "version"]);
+        const rejectedCommand = await exec([CONTAINER_WRAPPER_PATH, "config:set", TEST_APP, "A=B"], {
+          allowFailure: true,
+        });
+        assert(
+          rejectedCommand.exitCode !== 0,
+          "Dokku wrapper must reject non-read-only commands",
+        );
+
+        const doctor = await exec(
+          [
+            CONTAINER_AGENT_PATH,
+            "doctor",
+            "--state-dir",
+            CONTAINER_STATE_DIR,
+            "--dokku-bin",
+            CONTAINER_WRAPPER_PATH,
+          ],
+          { timeoutMs: 120_000 },
+        );
+        assert(
+          doctor.stdout.includes("PASS privilege path version"),
+          "doctor must execute allowlisted commands through the privilege path",
         );
 
         await startAgent();

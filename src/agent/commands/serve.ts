@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 
-import { BunDokkuCommandRunner, DokkuAdapter } from "../dokku";
+import { DokkuCommandRunner, DokkuAdapter } from "../dokku";
 import { NemoError } from "../errors";
 import { auth, errors, handler } from "../http";
 import { AgentState } from "../storage";
@@ -9,7 +9,7 @@ import { flagInt, flagString, stateDir, type ParsedArgs } from "./args";
 
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
-  const runner = new BunDokkuCommandRunner({
+  const runner = new DokkuCommandRunner({
     binary: flagString(parsed, "dokku-bin") ?? "dokku",
     timeoutMs: flagInt(parsed, "command-timeout-ms") ?? 8_000,
     outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
@@ -33,11 +33,16 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
           }),
       },
       "/v1/pairing/exchange": {
-        POST: handler(errors, async (request) => await exchangePairing(request, state, publicHost)),
+        POST: handler(
+          errors,
+          async (request) => await exchangePairing(request, state, publicHost),
+        ),
       },
       "/v1/meta": {
         GET: handler(errors, auth(state, "read:status"), async () => {
-          const version = await dokku.version().catch(() => ({ version: null }));
+          const version = await dokku
+            .version()
+            .catch(() => ({ version: null }));
           return Response.json({
             apiVersion: API_VERSION,
             agentVersion: AGENT_VERSION,
@@ -50,12 +55,16 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
         }),
       },
       "/v1/platform/version": {
-        GET: handler(errors, auth(state, "read:status"), async () => Response.json(await dokku.version())),
+        GET: handler(errors, auth(state, "read:status"), async () =>
+          Response.json(await dokku.version()),
+        ),
       },
       "/v1/apps": {
         GET: handler(errors, auth(state, "read:status"), async () => {
           const apps = await dokku.listApps();
-          const summaries = await Promise.all(apps.map((app) => dokku.getApp(app)));
+          const summaries = await Promise.all(
+            apps.map((app) => dokku.getApp(app)),
+          );
           return Response.json({ apps: summaries });
         }),
       },
@@ -68,14 +77,25 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
           return Response.json(await dokku.getApp(app));
         }),
       },
-      "/v1/*": Response.json({ error: { code: "NOT_FOUND", message: "Not found", retryable: false } }, { status: 404 }),
+      "/v1/*": Response.json(
+        {
+          error: { code: "NOT_FOUND", message: "Not found", retryable: false },
+        },
+        { status: 404 },
+      ),
     },
   });
 
-  console.log(`nemo-agent ${AGENT_VERSION} listening on http://${server.hostname}:${server.port}`);
+  console.log(
+    `nemo-agent ${AGENT_VERSION} listening on http://${server.hostname}:${server.port}`,
+  );
 }
 
-async function exchangePairing(request: Request, state: AgentState, hostName: string): Promise<Response> {
+async function exchangePairing(
+  request: Request,
+  state: AgentState,
+  hostName: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -83,17 +103,26 @@ async function exchangePairing(request: Request, state: AgentState, hostName: st
     throw new NemoError("BAD_REQUEST", "Invalid JSON body", { status: 400 });
   }
 
-  const pairingId = (body.pairingId as string | undefined) ?? (body.id as string | undefined);
+  const pairingId =
+    (body.pairingId as string | undefined) ?? (body.id as string | undefined);
   const code = body.code as string | undefined;
   const deviceName = (body.deviceName as string | undefined) ?? "Nemo Device";
 
   if (!pairingId || !code) {
-    throw new NemoError("BAD_REQUEST", "pairingId and code are required", { status: 400 });
+    throw new NemoError("BAD_REQUEST", "pairingId and code are required", {
+      status: 400,
+    });
   }
 
-  const result = await state.exchangePairingSession({ pairingId, code, deviceName });
+  const result = await state.exchangePairingSession({
+    pairingId,
+    code,
+    deviceName,
+  });
   if (!result.ok || !result.credential || !result.credentialRecord) {
-    throw new NemoError("PAIRING_EXCHANGE_FAILED", "Pairing exchange failed", { status: 401 });
+    throw new NemoError("PAIRING_EXCHANGE_FAILED", "Pairing exchange failed", {
+      status: 401,
+    });
   }
 
   return Response.json({

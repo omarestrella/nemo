@@ -4,10 +4,10 @@ export function printHelp(): void {
   console.log(`nemo-agent ${AGENT_VERSION}
 
 Usage:
-  nemo-agent init [--state-dir PATH]
+  nemo-agent init [--state-dir PATH] [--dokku-bin PATH]
   nemo-agent doctor [--fix] [--state-dir PATH] [--dokku-bin PATH]
   nemo-agent status [--state-dir PATH]
-  nemo-agent serve [--state-dir PATH] [--host 127.0.0.1] [--port 7331]
+  nemo-agent serve [--state-dir PATH] [--host 127.0.0.1] [--port 7331] [--dokku-bin PATH]
   nemo-agent pair start --name "Device" [--ttl 10m] [--endpoint URL]
   nemo-agent pair list
   nemo-agent pair cancel <pairing-id>

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -15,12 +15,12 @@ afterEach(async () => {
     await process.exited.catch(() => {});
   }
   for (const path of cleanupPaths.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
+    await rm(path, { recursive: true, force: true });
   }
 });
 
 test("health is public and meta requires a paired credential", async () => {
-  const stateDir = makeStateDir();
+  const stateDir = await makeStateDir();
   const url = await startServer(stateDir);
 
   const health = await fetch(`${url}/v1/health`);
@@ -32,7 +32,7 @@ test("health is public and meta requires a paired credential", async () => {
 });
 
 test("pairing exchange returns a bearer credential that can call meta", async () => {
-  const stateDir = makeStateDir();
+  const stateDir = await makeStateDir();
   const state = await AgentState.open({ stateDir });
   const pairing = await state.createPairingSession();
   state.close();
@@ -63,8 +63,8 @@ test("pairing exchange returns a bearer credential that can call meta", async ()
   });
 });
 
-function makeStateDir(): string {
-  const stateDir = mkdtempSync(join(tmpdir(), "nemo-http-"));
+async function makeStateDir(): Promise<string> {
+  const stateDir = await mkdtemp(join(tmpdir(), "nemo-http-"));
   cleanupPaths.push(stateDir);
   return stateDir;
 }

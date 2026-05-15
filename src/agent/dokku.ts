@@ -1,5 +1,6 @@
 import { NemoError } from "./errors";
 import type { AppSummary, DokkuPlatform, PlatformVersion } from "./types";
+import { TaskQueue } from "../utils/task-queue";
 
 const APP_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DEFAULT_TIMEOUT_MS = 8_000;
@@ -16,39 +17,41 @@ export interface CommandResult {
   timedOut: boolean;
 }
 
-export interface DokkuCommandRunner {
+export interface IDokkuCommandRunner {
   run(args: string[]): Promise<CommandResult>;
 }
 
-export interface BunDokkuCommandRunnerOptions {
+export interface RunnerOptions {
   binary?: string;
+  commandPrefix?: string[];
   timeoutMs?: number;
   outputLimitBytes?: number;
   concurrency?: number;
 }
 
-export class BunDokkuCommandRunner implements DokkuCommandRunner {
-  private readonly binary: string;
+export class DokkuCommandRunner implements IDokkuCommandRunner {
+  private readonly commandPrefix: string[];
   private readonly timeoutMs: number;
   private readonly outputLimitBytes: number;
-  private readonly semaphore: Semaphore;
+  private readonly queue: TaskQueue;
 
-  constructor(options: BunDokkuCommandRunnerOptions = {}) {
-    this.binary = options.binary ?? "dokku";
+  constructor(options: RunnerOptions = {}) {
+    this.commandPrefix = options.commandPrefix ?? [options.binary ?? "dokku"];
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.outputLimitBytes = options.outputLimitBytes ?? DEFAULT_OUTPUT_LIMIT_BYTES;
-    this.semaphore = new Semaphore(options.concurrency ?? DEFAULT_CONCURRENCY);
+    this.outputLimitBytes =
+      options.outputLimitBytes ?? DEFAULT_OUTPUT_LIMIT_BYTES;
+    this.queue = new TaskQueue(options.concurrency ?? DEFAULT_CONCURRENCY);
   }
 
   async run(args: string[]): Promise<CommandResult> {
     assertAllowedDokkuArgs(args);
-    return await this.semaphore.with(async () => await this.runAllowed(args));
+    return await this.queue.run(async () => await this.runAllowed(args));
   }
 
   private async runAllowed(args: string[]): Promise<CommandResult> {
     let process: Bun.Subprocess<"ignore", "pipe", "pipe">;
     try {
-      process = Bun.spawn([this.binary, ...args], {
+      process = Bun.spawn([...this.commandPrefix, ...args], {
         stdout: "pipe",
         stderr: "pipe",
         stdin: "ignore",
@@ -58,10 +61,14 @@ export class BunDokkuCommandRunner implements DokkuCommandRunner {
         },
       });
     } catch (error) {
-      throw new NemoError("PLATFORM_COMMAND_FAILED", error instanceof Error ? error.message : "Failed to start dokku", {
-        status: 502,
-        retryable: true,
-      });
+      throw new NemoError(
+        "PLATFORM_COMMAND_FAILED",
+        error instanceof Error ? error.message : "Failed to start dokku",
+        {
+          status: 502,
+          retryable: true,
+        },
+      );
     }
 
     let timedOut = false;
@@ -89,7 +96,7 @@ export class BunDokkuCommandRunner implements DokkuCommandRunner {
 }
 
 export class DokkuAdapter implements DokkuPlatform {
-  constructor(private readonly runner: DokkuCommandRunner) {}
+  constructor(private readonly runner: IDokkuCommandRunner) {}
 
   async version(): Promise<PlatformVersion> {
     const result = await this.runRequired(["version"]);
@@ -111,18 +118,21 @@ export class DokkuAdapter implements DokkuPlatform {
 
   async getApp(app: string): Promise<AppSummary> {
     if (!isValidAppName(app)) {
-      throw new NemoError("INVALID_APP_NAME", "Invalid app name", { status: 400 });
+      throw new NemoError("INVALID_APP_NAME", "Invalid app name", {
+        status: 400,
+      });
     }
 
-    const [urls, running, deployed, status, ports, domains, letsEncrypt] = await Promise.all([
-      this.runOptional(["urls", app]),
-      this.runOptional(["ps:report", app, "--running"]),
-      this.runOptional(["ps:report", app, "--deployed"]),
-      this.runOptional(["ps:report", app, "--status"]),
-      this.runOptional(["ports:report", app, "--ports-map"]),
-      this.runOptional(["domains:report", app, "--domains-app-vhosts"]),
-      this.runOptional(["letsencrypt:active", app]),
-    ]);
+    const [urls, running, deployed, status, ports, domains, letsEncrypt] =
+      await Promise.all([
+        this.runOptional(["urls", app]),
+        this.runOptional(["ps:report", app, "--running"]),
+        this.runOptional(["ps:report", app, "--deployed"]),
+        this.runOptional(["ps:report", app, "--status"]),
+        this.runOptional(["ports:report", app, "--ports-map"]),
+        this.runOptional(["domains:report", app, "--domains-app-vhosts"]),
+        this.runOptional(["letsencrypt:active", app]),
+      ]);
 
     return {
       name: app,
@@ -140,10 +150,18 @@ export class DokkuAdapter implements DokkuPlatform {
   private async runRequired(args: string[]): Promise<CommandResult> {
     const result = await this.runner.run(args);
     if (result.timedOut) {
-      throw new NemoError("PLATFORM_COMMAND_TIMEOUT", "Platform command timed out", { status: 504, retryable: true });
+      throw new NemoError(
+        "PLATFORM_COMMAND_TIMEOUT",
+        "Platform command timed out",
+        { status: 504, retryable: true },
+      );
     }
     if (result.exitCode !== 0) {
-      throw new NemoError("PLATFORM_COMMAND_FAILED", "Platform command failed", { status: 502, retryable: true });
+      throw new NemoError(
+        "PLATFORM_COMMAND_FAILED",
+        "Platform command failed",
+        { status: 502, retryable: true },
+      );
     }
     return result;
   }
@@ -169,7 +187,11 @@ export function assertAllowedDokkuArgs(args: string[]): void {
   if (isAllowedDokkuArgs(args)) {
     return;
   }
-  throw new NemoError("PLATFORM_COMMAND_NOT_ALLOWED", "Dokku command is not allowlisted", { status: 403 });
+  throw new NemoError(
+    "PLATFORM_COMMAND_NOT_ALLOWED",
+    "Dokku command is not allowlisted",
+    { status: 403 },
+  );
 }
 
 export function isAllowedDokkuArgs(args: string[]): boolean {
@@ -179,25 +201,42 @@ export function isAllowedDokkuArgs(args: string[]): boolean {
   if (args.length === 2 && args[0] === "--quiet" && args[1] === "apps:list") {
     return true;
   }
-  if (args.length === 2 && args[0] === "urls" && args[1] !== undefined && isValidAppName(args[1])) {
+  if (
+    args.length === 2 &&
+    args[0] === "urls" &&
+    args[1] !== undefined &&
+    isValidAppName(args[1])
+  ) {
     return true;
   }
   if (args.length === 1 && args[0] === "events") {
     return true;
   }
-  if (args.length === 4 && args[0] === "logs" && args[1] !== undefined && isValidAppName(args[1]) && args[2] === "--num") {
+  if (
+    args.length === 4 &&
+    args[0] === "logs" &&
+    args[1] !== undefined &&
+    isValidAppName(args[1]) &&
+    args[2] === "--num"
+  ) {
     const lines = Number.parseInt(args[3] ?? "", 10);
     return Number.isInteger(lines) && lines > 0 && lines <= 500;
   }
   if (args.length === 3 && args[1] && isValidAppName(args[1])) {
     const [command, , flag] = args;
     return (
-      (command === "ps:report" && ["--running", "--deployed", "--status"].includes(flag ?? "")) ||
+      (command === "ps:report" &&
+        ["--running", "--deployed", "--status"].includes(flag ?? "")) ||
       (command === "ports:report" && flag === "--ports-map") ||
       (command === "domains:report" && flag === "--domains-app-vhosts")
     );
   }
-  if (args.length === 2 && args[0] === "letsencrypt:active" && args[1] !== undefined && isValidAppName(args[1])) {
+  if (
+    args.length === 2 &&
+    args[0] === "letsencrypt:active" &&
+    args[1] !== undefined &&
+    isValidAppName(args[1])
+  ) {
     return true;
   }
   return false;
@@ -243,10 +282,12 @@ function firstNonEmptyLine(raw: string | null): string | null {
   if (!raw) {
     return null;
   }
-  return raw
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean) ?? null;
+  return (
+    raw
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? null
+  );
 }
 
 async function readProcessStream(
@@ -298,28 +339,4 @@ async function readProcessStream(
   }
 
   return { text: new TextDecoder().decode(merged), truncated };
-}
-
-class Semaphore {
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-
-  constructor(private readonly limit: number) {}
-
-  async with<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active >= this.limit) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-
-    this.active += 1;
-    try {
-      return await fn();
-    } finally {
-      this.active -= 1;
-      const next = this.waiters.shift();
-      if (next) {
-        next();
-      }
-    }
-  }
 }

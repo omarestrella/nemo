@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,9 +7,9 @@ import { AgentState } from "../src/agent/storage";
 
 const cleanupPaths: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const path of cleanupPaths.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
+    await rm(path, { recursive: true, force: true });
   }
 });
 
@@ -84,7 +84,7 @@ test("revoked credentials no longer authenticate", async () => {
 });
 
 async function openTestState(): Promise<AgentState> {
-  const dir = mkdtempSync(join(tmpdir(), "nemo-state-"));
+  const dir = await mkdtemp(join(tmpdir(), "nemo-state-"));
   cleanupPaths.push(dir);
   return await AgentState.open({ stateDir: dir });
 }

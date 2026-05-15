@@ -76,11 +76,15 @@ Done:
 - Fast Bun tests and a real Dokku Docker integration test run through
   `bun test`.
 - Linux x64 and Linux arm64 compile scripts exist.
+- Agent host install scaffolding exists for the `nemo-agent` system user/group,
+  restrictive config/state layout, read-only Dokku wrapper, sudoers rule, and
+  systemd unit.
+- `doctor` reports pass/warn/fail across agent binary metadata, host state,
+  service artifacts, systemd posture, listener binding, Dokku discovery,
+  privilege-path command access, and service-user database readability.
 
 Not done:
 
-- Real host packaging, systemd install, sudoers/wrapper setup, and full doctor
-  checks.
 - Logs and events API endpoints.
 - Reverse proxy / Tailscale Serve / SSH tunnel docs.
 - Native macOS menu bar app beyond the starter Xcode scaffold.
@@ -91,13 +95,12 @@ Not done:
 
 Work these roughly in order:
 
-1. [Agent hardening and install](tasks/01-agent-hardening-and-install.md)
-2. [Logs and events API](tasks/02-logs-and-events-api.md)
-3. [Exposure and packaging docs](tasks/03-exposure-and-packaging-docs.md)
-4. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
-5. [Daily driver polish](tasks/05-daily-driver-polish.md)
-6. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
-7. [Optional write actions](tasks/07-optional-write-actions.md)
+1. [Logs and events API](tasks/02-logs-and-events-api.md)
+2. [Exposure and packaging docs](tasks/03-exposure-and-packaging-docs.md)
+3. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
+4. [Daily driver polish](tasks/05-daily-driver-polish.md)
+5. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
+6. [Optional write actions](tasks/07-optional-write-actions.md)
 
 ## Guardrails
 
