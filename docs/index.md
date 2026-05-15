@@ -71,6 +71,8 @@ Done:
   - `GET /v1/platform/version`
   - `GET /v1/apps`
   - `GET /v1/apps/:app`
+  - `GET /v1/apps/:app/logs`
+  - `GET /v1/events`
 - Dokku command execution is allowlisted, timeout-bound, output-capped, and
   concurrency-limited.
 - Fast Bun tests and a real Dokku Docker integration test run through
@@ -85,7 +87,6 @@ Done:
 
 Not done:
 
-- Logs and events API endpoints.
 - Reverse proxy / Tailscale Serve / SSH tunnel docs.
 - Native macOS menu bar app beyond the starter Xcode scaffold.
 - App detail, logs/events UI, refresh strategy, pinned apps, notifications,
@@ -95,12 +96,11 @@ Not done:
 
 Work these roughly in order:
 
-1. [Logs and events API](tasks/02-logs-and-events-api.md)
-2. [Exposure and packaging docs](tasks/03-exposure-and-packaging-docs.md)
-3. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
-4. [Daily driver polish](tasks/05-daily-driver-polish.md)
-5. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
-6. [Optional write actions](tasks/07-optional-write-actions.md)
+1. [Exposure and packaging docs](tasks/03-exposure-and-packaging-docs.md)
+2. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
+3. [Daily driver polish](tasks/05-daily-driver-polish.md)
+4. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
+5. [Optional write actions](tasks/07-optional-write-actions.md)
 
 ## Guardrails
 

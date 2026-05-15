@@ -42,3 +42,4 @@ several minutes the first time it pulls the Dokku image.
 
 The agent binds to `127.0.0.1` by default and exposes `/v1/health`,
 `/v1/meta`, `/v1/platform/version`, `/v1/apps`, and `/v1/apps/{app}`.
+Authenticated clients can also call `/v1/apps/{app}/logs` and `/v1/events`.

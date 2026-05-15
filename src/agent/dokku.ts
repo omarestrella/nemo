@@ -1,8 +1,17 @@
 import { NemoError } from "./errors";
-import type { AppSummary, DokkuPlatform, PlatformVersion } from "./types";
+import type {
+  AppLogs,
+  AppSummary,
+  DokkuPlatform,
+  LogLine,
+  PlatformEvent,
+  PlatformEvents,
+  PlatformVersion,
+} from "./types";
 import { TaskQueue } from "../utils/task-queue";
 
 const APP_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+export const MAX_DOKKU_READ_LIMIT = 500;
 const DEFAULT_TIMEOUT_MS = 8_000;
 const DEFAULT_OUTPUT_LIMIT_BYTES = 256 * 1024;
 const DEFAULT_CONCURRENCY = 4;
@@ -147,6 +156,83 @@ export class DokkuAdapter implements DokkuPlatform {
     };
   }
 
+  async getAppLogs(app: string, lines: number): Promise<AppLogs> {
+    if (!isValidAppName(app)) {
+      throw new NemoError("INVALID_APP_NAME", "Invalid app name", {
+        status: 400,
+      });
+    }
+    if (!isBoundedPositiveInteger(lines, MAX_DOKKU_READ_LIMIT)) {
+      throw new NemoError("BAD_REQUEST", "lines must be between 1 and 500", {
+        status: 400,
+      });
+    }
+
+    const apps = await this.listApps();
+    if (!apps.includes(app)) {
+      throw new NemoError("NOT_FOUND", "App not found", { status: 404 });
+    }
+
+    const result = await this.runRequired([
+      "logs",
+      app,
+      "--num",
+      String(lines),
+    ]);
+    return {
+      status: "ok",
+      app,
+      lines,
+      logs: parseLogLines(result.stdout),
+      truncated: result.stdoutTruncated,
+    };
+  }
+
+  async getEvents(limit: number): Promise<PlatformEvents> {
+    if (!isBoundedPositiveInteger(limit, MAX_DOKKU_READ_LIMIT)) {
+      throw new NemoError("BAD_REQUEST", "limit must be between 1 and 500", {
+        status: 400,
+      });
+    }
+
+    let result: CommandResult;
+    try {
+      result = await this.runner.run(["events"]);
+    } catch (error) {
+      if (
+        error instanceof NemoError &&
+        error.code === "PLATFORM_COMMAND_NOT_ALLOWED"
+      ) {
+        throw error;
+      }
+      return unavailableEvents(
+        limit,
+        error instanceof Error ? error.message : "Platform events unavailable",
+        "",
+      );
+    }
+
+    const raw = result.stdout || result.stderr;
+    if (result.timedOut) {
+      return unavailableEvents(limit, "Platform events command timed out", raw);
+    }
+    if (result.exitCode !== 0 || isEventsUnavailableOutput(raw)) {
+      return unavailableEvents(
+        limit,
+        firstNonEmptyLine(result.stderr || result.stdout) ??
+          "Platform events unavailable",
+        raw,
+      );
+    }
+
+    return {
+      status: "ok",
+      limit,
+      events: parsePlatformEvents(result.stdout, limit),
+      truncated: result.stdoutTruncated,
+    };
+  }
+
   private async runRequired(args: string[]): Promise<CommandResult> {
     const result = await this.runner.run(args);
     if (result.timedOut) {
@@ -219,8 +305,7 @@ export function isAllowedDokkuArgs(args: string[]): boolean {
     isValidAppName(args[1]) &&
     args[2] === "--num"
   ) {
-    const lines = Number.parseInt(args[3] ?? "", 10);
-    return Number.isInteger(lines) && lines > 0 && lines <= 500;
+    return isBoundedPositiveIntegerString(args[3] ?? "", MAX_DOKKU_READ_LIMIT);
   }
   if (args.length === 3 && args[1] && isValidAppName(args[1])) {
     const [command, , flag] = args;
@@ -278,6 +363,16 @@ export function parseBoolean(raw: string | null | undefined): boolean | null {
   return null;
 }
 
+export function parseLogLines(raw: string): LogLine[] {
+  return splitOutputLines(raw).map((line, index) => parseLogLine(line, index));
+}
+
+export function parsePlatformEvents(raw: string, limit?: number): PlatformEvent[] {
+  const lines = splitOutputLines(raw).filter((line) => line.trim().length > 0);
+  const selected = limit === undefined ? lines : lines.slice(-limit);
+  return selected.map((line, index) => parsePlatformEvent(line, index));
+}
+
 function firstNonEmptyLine(raw: string | null): string | null {
   if (!raw) {
     return null;
@@ -288,6 +383,166 @@ function firstNonEmptyLine(raw: string | null): string | null {
       .map((line) => line.trim())
       .find(Boolean) ?? null
   );
+}
+
+function parseLogLine(raw: string, index: number): LogLine {
+  const timestamp = parseFullTimestampPrefix(raw);
+  const messageText = timestamp?.rest ?? raw;
+  const message = parseSourceMessage(messageText);
+  return {
+    index,
+    raw,
+    message: message.message,
+    timestamp: timestamp?.timestamp ?? null,
+    timestampText: timestamp?.timestampText ?? null,
+    source: message.source,
+  };
+}
+
+function parsePlatformEvent(raw: string, index: number): PlatformEvent {
+  const syslog = raw.match(
+    /^([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^\s:[\]]+)(?:\[(\d+)])?:\s*(.*)$/,
+  );
+  if (syslog) {
+    const invocation = parseDokkuInvocation(syslog[5] ?? "");
+    return {
+      index,
+      raw,
+      message: syslog[5] ?? "",
+      timestamp: null,
+      timestampText: syslog[1] ?? null,
+      host: syslog[2] ?? null,
+      source: syslog[3] ?? null,
+      pid: syslog[4] ? Number.parseInt(syslog[4], 10) : null,
+      action: invocation.action,
+      app: invocation.app,
+      args: invocation.args,
+    };
+  }
+
+  const timestamp = parseFullTimestampPrefix(raw);
+  const message = timestamp?.rest ?? raw;
+  const invocation = parseDokkuInvocation(message);
+  return {
+    index,
+    raw,
+    message,
+    timestamp: timestamp?.timestamp ?? null,
+    timestampText: timestamp?.timestampText ?? null,
+    host: null,
+    source: null,
+    pid: null,
+    action: invocation.action,
+    app: invocation.app,
+    args: invocation.args,
+  };
+}
+
+function parseFullTimestampPrefix(
+  raw: string,
+): { timestampText: string; timestamp: string | null; rest: string } | null {
+  const match = raw.match(
+    /^(\d{4}-\d{2}-\d{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))\s*(.*)$/,
+  );
+  if (!match) {
+    return null;
+  }
+  return {
+    timestampText: match[1] ?? "",
+    timestamp: normalizeTimestamp(match[1] ?? ""),
+    rest: match[2] ?? "",
+  };
+}
+
+function normalizeTimestamp(value: string): string | null {
+  const normalized = value
+    .replace(" ", "T")
+    .replace(/\.(\d{3})\d+/, ".$1")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const time = Date.parse(normalized);
+  if (Number.isNaN(time)) {
+    return null;
+  }
+  return new Date(time).toISOString();
+}
+
+function parseSourceMessage(raw: string): { source: string | null; message: string } {
+  const match = raw
+    .trimStart()
+    .match(/^([A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.-]+\])?)(?:\s+\|\s+|:\s+)(.*)$/);
+  if (!match) {
+    return { source: null, message: raw };
+  }
+  return {
+    source: match[1] ?? null,
+    message: match[2] ?? "",
+  };
+}
+
+function parseDokkuInvocation(message: string): {
+  action: string | null;
+  app: string | null;
+  args: string[];
+} {
+  const match = message.match(/^INVOKED:\s*([^(]+?)\s*\((.*)\)\s*$/);
+  if (!match) {
+    return { action: null, app: null, args: [] };
+  }
+
+  const args = (match[2] ?? "").trim().split(/\s+/).filter(Boolean);
+  const firstArg = args[0] ?? null;
+  return {
+    action: (match[1] ?? "").trim() || null,
+    app: firstArg && isValidAppName(firstArg) ? firstArg : null,
+    args,
+  };
+}
+
+function splitOutputLines(raw: string): string[] {
+  const lines = raw.split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function isEventsUnavailableOutput(raw: string): boolean {
+  const normalized = raw.toLowerCase();
+  return [
+    "unknown command",
+    "not a dokku command",
+    "events logger is not enabled",
+    "events logger not enabled",
+    "events are not enabled",
+    "events are disabled",
+    "events plugin is not installed",
+  ].some((text) => normalized.includes(text));
+}
+
+function unavailableEvents(
+  limit: number,
+  message: string,
+  raw: string,
+): PlatformEvents {
+  return {
+    status: "unavailable",
+    limit,
+    events: [],
+    retryable: true,
+    message,
+    raw,
+  };
+}
+
+function isBoundedPositiveInteger(value: number, max: number): boolean {
+  return Number.isInteger(value) && value > 0 && value <= max;
+}
+
+function isBoundedPositiveIntegerString(value: string, max: number): boolean {
+  if (!/^[0-9]+$/.test(value)) {
+    return false;
+  }
+  return isBoundedPositiveInteger(Number(value), max);
 }
 
 async function readProcessStream(

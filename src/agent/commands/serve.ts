@@ -1,6 +1,11 @@
 import { hostname } from "node:os";
 
-import { DokkuCommandRunner, DokkuAdapter } from "../dokku";
+import {
+  DokkuCommandRunner,
+  DokkuAdapter,
+  MAX_DOKKU_READ_LIMIT,
+  isValidAppName,
+} from "../dokku";
 import { NemoError } from "../errors";
 import { auth, errors, handler } from "../http";
 import { AgentState } from "../storage";
@@ -50,7 +55,7 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
             host: publicHost,
             platform: "dokku",
             platformVersion: version.version,
-            capabilities: ["apps", "letsencrypt"],
+            capabilities: ["apps", "letsencrypt", "logs", "events"],
           });
         }),
       },
@@ -68,6 +73,18 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
           return Response.json({ apps: summaries });
         }),
       },
+      "/v1/apps/:app/logs": {
+        GET: handler(errors, auth(state, "read:logs"), async (request) => {
+          const { app } = request.params;
+          if (!isValidAppName(app)) {
+            throw new NemoError("INVALID_APP_NAME", "Invalid app name", {
+              status: 400,
+            });
+          }
+          const lines = parseBoundedQueryParam(request, "lines", 200);
+          return Response.json(await dokku.getAppLogs(app, lines));
+        }),
+      },
       "/v1/apps/:app": {
         GET: handler(errors, auth(state, "read:status"), async (request) => {
           const { app } = request.params;
@@ -75,6 +92,12 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
             throw new NemoError("NOT_FOUND", "Not found", { status: 404 });
           }
           return Response.json(await dokku.getApp(app));
+        }),
+      },
+      "/v1/events": {
+        GET: handler(errors, auth(state, "read:events"), async (request) => {
+          const limit = parseBoundedQueryParam(request, "limit", 50);
+          return Response.json(await dokku.getEvents(limit));
         }),
       },
       "/v1/*": Response.json(
@@ -89,6 +112,37 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   console.log(
     `nemo-agent ${AGENT_VERSION} listening on http://${server.hostname}:${server.port}`,
   );
+}
+
+function parseBoundedQueryParam(
+  request: Request,
+  name: string,
+  defaultValue: number,
+): number {
+  const value = new URL(request.url).searchParams.get(name);
+  if (value === null) {
+    return defaultValue;
+  }
+  if (!/^[0-9]+$/.test(value)) {
+    throw new NemoError(
+      "BAD_REQUEST",
+      `${name} must be an integer between 1 and ${MAX_DOKKU_READ_LIMIT}`,
+      { status: 400 },
+    );
+  }
+  const parsed = Number(value);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    parsed > MAX_DOKKU_READ_LIMIT
+  ) {
+    throw new NemoError(
+      "BAD_REQUEST",
+      `${name} must be an integer between 1 and ${MAX_DOKKU_READ_LIMIT}`,
+      { status: 400 },
+    );
+  }
+  return parsed;
 }
 
 async function exchangePairing(

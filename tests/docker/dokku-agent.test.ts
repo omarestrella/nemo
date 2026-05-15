@@ -128,6 +128,12 @@ describe("nemo-agent Dokku Docker integration", () => {
         await exec(["dokku", "apps:create", TEST_APP], {
           timeoutMs: 120_000,
         });
+        await exec(["dokku", "events:on"], {
+          timeoutMs: 120_000,
+        });
+        await exec(["dokku", "git:from-image", TEST_APP, "nginx:alpine"], {
+          timeoutMs: 180_000,
+        });
         const appList = await exec(["dokku", "--quiet", "apps:list"]);
         assert(
           appList.stdout
@@ -256,6 +262,18 @@ describe("nemo-agent Dokku Docker integration", () => {
           app.name === TEST_APP,
           "App detail endpoint returned the wrong app",
         );
+
+        const logs = await getJson(
+          `${endpoint}/v1/apps/${TEST_APP}/logs?lines=50`,
+          credential,
+        );
+        assert(logs.status === "ok", "Logs endpoint did not report ok");
+        assert(logs.app === TEST_APP, "Logs endpoint returned the wrong app");
+        assert(Array.isArray(logs.logs), "Logs endpoint missed logs array");
+
+        const events = await getJson(`${endpoint}/v1/events?limit=50`, credential);
+        assert(events.status === "ok", "Events endpoint did not report ok");
+        assert(Array.isArray(events.events), "Events endpoint missed events array");
       } catch (error) {
         if (containerStarted) {
           await printDiagnostics();
