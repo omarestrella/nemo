@@ -78,12 +78,11 @@ Done:
 - Fast Bun tests and a real Dokku Docker integration test run through
   `bun test`.
 - Linux x64 and Linux arm64 compile scripts exist.
-- Agent host install scaffolding exists for the `nemo-agent` system user/group,
-  restrictive config/state layout, read-only Dokku wrapper, sudoers rule, and
-  systemd unit.
+- Agent host install scaffolding exists for restrictive config/state layout and
+  a systemd unit.
 - `doctor` reports pass/warn/fail across agent binary metadata, host state,
   service artifacts, systemd posture, listener binding, Dokku discovery,
-  privilege-path command access, and service-user database readability.
+  read-command access, and service database readability.
 - Reverse proxy, Tailscale Serve, SSH tunnel, HTTPS, and first packaging
   direction are documented in `docs/exposure-and-packaging.md`.
 

@@ -3,17 +3,12 @@ import { arch, platform } from "node:os";
 
 import { DokkuCommandRunner, DokkuAdapter, isAllowedDokkuArgs } from "../dokku";
 import {
-  AGENT_USER,
-  DOKKU_WRAPPER_PATH,
   INSTALLED_BINARY_PATH,
-  SUDOERS_PATH,
   SYSTEMD_UNIT_PATH,
   defaultInstallPaths,
   ensureAgentStateOwnership,
   ensureHostInstall,
   fileContains,
-  renderDokkuWrapper,
-  renderSudoers,
   renderSystemdUnit,
 } from "../install";
 import {
@@ -44,7 +39,6 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
   const paths = resolveStatePaths({ stateDir: stateDir(parsed) });
   const installPaths = defaultInstallPaths({
     stateDir: paths.stateDir,
-    dokkuBin: flagString(parsed, "dokku-bin") ?? undefined,
     host: flagString(parsed, "host") ?? undefined,
     port: flagInt(parsed, "port") ?? undefined,
   });
@@ -81,8 +75,8 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
       "state directory",
       paths.stateDir,
       0o700,
-      AGENT_USER,
-      AGENT_USER,
+      "root",
+      "root",
     ),
   );
   checks.push(
@@ -90,8 +84,8 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
       "server secret",
       paths.secretPath,
       0o600,
-      AGENT_USER,
-      AGENT_USER,
+      "root",
+      "root",
     ),
   );
   checks.push(
@@ -99,26 +93,6 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
       "database",
       paths.databasePath,
       0o600,
-      AGENT_USER,
-      AGENT_USER,
-    ),
-  );
-  checks.push(
-    await fileCheck(
-      "Dokku wrapper",
-      DOKKU_WRAPPER_PATH,
-      renderDokkuWrapper(installPaths.dokkuBin),
-      0o755,
-      "root",
-      "root",
-    ),
-  );
-  checks.push(
-    await fileCheck(
-      "sudoers rule",
-      SUDOERS_PATH,
-      renderSudoers(),
-      0o440,
       "root",
       "root",
     ),
@@ -136,9 +110,9 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
   checks.push(...(await systemdChecks(installPaths.host, installPaths.port)));
   checks.push(await listenerCheck(installPaths.host, installPaths.port));
 
-  const serviceCommand = [flagString(parsed, "dokku-bin") ?? "dokku"];
+  const serviceCommand = ["dokku"];
   checks.push(await checkDokku(serviceCommand));
-  checks.push(...(await allowlistChecks(serviceCommand)));
+  checks.push(...(await readCommandChecks(serviceCommand)));
   checks.push(
     await serviceUserReadCheck(
       "pairing and credential database readability",
@@ -177,7 +151,7 @@ async function checkDokku(command: string[]): Promise<Check> {
   }
 }
 
-async function allowlistChecks(commandPrefix: string[]): Promise<Check[]> {
+async function readCommandChecks(commandPrefix: string[]): Promise<Check[]> {
   const appName = await discoverApp(commandPrefix);
   const commands = [["version"], ["--quiet", "apps:list"], ["events"]];
   if (appName) {
@@ -195,7 +169,7 @@ async function allowlistChecks(commandPrefix: string[]): Promise<Check[]> {
   const checks: Check[] = [];
   if (!appName) {
     checks.push({
-      name: "privilege path app-specific commands",
+      name: "read command app-specific probes",
       status: "WARN",
       detail: "no Dokku apps found; skipped app-specific probes",
     });
@@ -203,7 +177,7 @@ async function allowlistChecks(commandPrefix: string[]): Promise<Check[]> {
   for (const command of commands) {
     if (!isAllowedDokkuArgs(command)) {
       checks.push({
-        name: `privilege path ${command.join(" ")}`,
+        name: `read command ${command.join(" ")}`,
         status: "FAIL",
         detail: "not internally allowlisted",
       });
@@ -212,9 +186,9 @@ async function allowlistChecks(commandPrefix: string[]): Promise<Check[]> {
     const result = await run([...commandPrefix, ...command], 5_000);
     const reachedDokku =
       result.exitCode === 0 ||
-      !isPrivilegeDenied(result.stderr || result.stdout);
+      !isCommandAccessDenied(result.stderr || result.stdout);
     checks.push({
-      name: `privilege path ${command.join(" ")}`,
+      name: `read command ${command.join(" ")}`,
       status: reachedDokku ? "PASS" : "FAIL",
       detail:
         result.exitCode === 0
@@ -296,12 +270,12 @@ async function userChecks(): Promise<Check[]> {
   return [
     {
       name: "effective user",
-      status: uid === 0 || user === AGENT_USER ? "PASS" : "WARN",
+      status: uid === 0 || user === "root" ? "PASS" : "WARN",
       detail: `${user}${uid === null ? "" : ` uid ${uid}`}`,
     },
     {
       name: "effective group",
-      status: gid === 0 || group === AGENT_USER ? "PASS" : "WARN",
+      status: gid === 0 || group === "root" ? "PASS" : "WARN",
       detail: `${group}${gid === null ? "" : ` gid ${gid}`}`,
     },
   ];
@@ -323,16 +297,15 @@ async function systemdChecks(
     "show",
     "nemo-agent.service",
     "--property",
-    "User,Group,ExecStart,NoNewPrivileges,PrivateTmp,ProtectSystem,ProtectHome,ReadWritePaths",
+    "User,Group,ExecStart,PrivateTmp,ProtectSystem,ProtectHome,ReadWritePaths",
   ]);
   const hardening = parseSystemdShow(show.stdout);
   const hardeningOk =
-    hardening.User === AGENT_USER &&
-    hardening.Group === AGENT_USER &&
-    hardening.NoNewPrivileges === "yes" &&
+    (hardening.User === "" || hardening.User === "root") &&
+    (hardening.Group === "" || hardening.Group === "root") &&
     hardening.PrivateTmp === "yes" &&
     hardening.ProtectSystem === "strict" &&
-    hardening.ProtectHome === "yes" &&
+    hardening.ProtectHome === "read-only" &&
     (hardening.ExecStart ?? "").includes(`--host ${expectedHost}`) &&
     (hardening.ExecStart ?? "").includes(`--port ${expectedPort}`);
   return [
@@ -372,7 +345,7 @@ async function serviceUserReadCheck(
       "/usr/bin/sudo",
       "-n",
       "-u",
-      AGENT_USER,
+      "root",
       "test",
       "-r",
       path,
@@ -382,7 +355,7 @@ async function serviceUserReadCheck(
       status: result.exitCode === 0 ? "PASS" : "FAIL",
       detail:
         result.exitCode === 0
-          ? `readable by ${AGENT_USER}`
+          ? "readable by root"
           : firstLine(result.stderr || result.stdout || "not readable"),
     };
   }
@@ -542,10 +515,9 @@ function firstLine(value: string): string {
   );
 }
 
-function isPrivilegeDenied(output: string): boolean {
+function isCommandAccessDenied(output: string): boolean {
   const normalized = output.toLowerCase();
   return (
-    normalized.includes("nemo-agent: dokku command is not allowlisted") ||
     normalized.includes("a password is required") ||
     normalized.includes("not in the sudoers") ||
     normalized.includes("permission denied")

@@ -7,7 +7,6 @@ const DOKKU_HOSTNAME = "dokku.test";
 const TEST_APP = "nemo-docker-test";
 const CONTAINER_AGENT_PATH = "/usr/local/bin/nemo-agent";
 const CONTAINER_STATE_DIR = "/var/lib/nemo-agent-test";
-const CONTAINER_WRAPPER_PATH = "/usr/local/lib/nemo-agent/dokku-readonly";
 const CONTAINER_AGENT_PORT = 7331;
 const TEST_DHPARAM_PEM = `-----BEGIN DH PARAMETERS-----
 MIIBDAKCAQEAsXw5FQDGCBNe7405/kjr+vnA18tQNDb2NN76hKdtx4c6TGBGMHdL
@@ -147,51 +146,47 @@ describe("nemo-agent Dokku Docker integration", () => {
         const modeOutput = await exec([
           "stat",
           "-c",
-          "%a %n",
+          "%a %U:%G %n",
           CONTAINER_STATE_DIR,
           `${CONTAINER_STATE_DIR}/server-secret`,
           `${CONTAINER_STATE_DIR}/nemo-agent.db`,
-          CONTAINER_WRAPPER_PATH,
-          "/etc/sudoers.d/nemo-agent",
           "/etc/systemd/system/nemo-agent.service",
         ]);
         assert(
-          modeOutput.stdout.includes(`700 ${CONTAINER_STATE_DIR}`),
-          "State directory must be mode 700",
+          modeOutput.stdout.includes(`700 root:root ${CONTAINER_STATE_DIR}`),
+          "State directory must be mode 700 and owned by root",
         );
         assert(
           modeOutput.stdout.includes(
-            `600 ${CONTAINER_STATE_DIR}/server-secret`,
+            `600 root:root ${CONTAINER_STATE_DIR}/server-secret`,
           ),
-          "Server secret must be mode 600",
+          "Server secret must be mode 600 and owned by root",
         );
         assert(
           modeOutput.stdout.includes(
-            `600 ${CONTAINER_STATE_DIR}/nemo-agent.db`,
+            `600 root:root ${CONTAINER_STATE_DIR}/nemo-agent.db`,
           ),
-          "Database must be mode 600",
+          "Database must be mode 600 and owned by root",
         );
         assert(
-          modeOutput.stdout.includes(`755 ${CONTAINER_WRAPPER_PATH}`),
-          "Dokku wrapper must be mode 755",
-        );
-        assert(
-          modeOutput.stdout.includes("440 /etc/sudoers.d/nemo-agent"),
-          "sudoers rule must be mode 440",
-        );
-        assert(
-          modeOutput.stdout.includes("644 /etc/systemd/system/nemo-agent.service"),
+          modeOutput.stdout.includes("644 root:root /etc/systemd/system/nemo-agent.service"),
           "systemd unit must be mode 644",
         );
-
-        await exec([CONTAINER_WRAPPER_PATH, "version"]);
-        const rejectedCommand = await exec([CONTAINER_WRAPPER_PATH, "config:set", TEST_APP, "A=B"], {
-          allowFailure: true,
-        });
+        const systemdUnit = await exec([
+          "cat",
+          "/etc/systemd/system/nemo-agent.service",
+        ]);
         assert(
-          rejectedCommand.exitCode !== 0,
-          "Dokku wrapper must reject non-read-only commands",
+          !systemdUnit.stdout.includes("\nUser=") &&
+            !systemdUnit.stdout.includes("\nGroup=") &&
+            !systemdUnit.stdout.includes("\nNoNewPrivileges="),
+          "systemd unit must not set User, Group, or NoNewPrivileges",
         );
+        assert(
+          systemdUnit.stdout.includes("ProtectHome=read-only"),
+          "systemd unit must keep Dokku home readable",
+        );
+        assert(!systemdUnit.stdout.includes("--dokku-bin"), "systemd unit must not pin a Dokku path");
 
         const doctor = await exec(
           [
@@ -199,14 +194,12 @@ describe("nemo-agent Dokku Docker integration", () => {
             "doctor",
             "--state-dir",
             CONTAINER_STATE_DIR,
-            "--dokku-bin",
-            CONTAINER_WRAPPER_PATH,
           ],
           { timeoutMs: 120_000 },
         );
         assert(
-          doctor.stdout.includes("PASS privilege path version"),
-          "doctor must execute allowlisted commands through the privilege path",
+          doctor.stdout.includes("PASS read command version"),
+          "doctor must execute expected read commands through the configured Dokku binary",
         );
 
         await startAgent();

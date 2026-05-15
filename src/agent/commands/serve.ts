@@ -15,7 +15,7 @@ import { flagInt, flagString, stateDir, type ParsedArgs } from "./args";
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
   const runner = new DokkuCommandRunner({
-    binary: flagString(parsed, "dokku-bin") ?? "dokku",
+    binary: "dokku",
     timeoutMs: flagInt(parsed, "command-timeout-ms") ?? 8_000,
     outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
     concurrency: flagInt(parsed, "command-concurrency") ?? 4,

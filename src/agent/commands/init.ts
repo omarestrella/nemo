@@ -7,7 +7,6 @@ export async function initCommand(parsed: ParsedArgs): Promise<void> {
   const install = await ensureHostInstall(
     defaultInstallPaths({
       stateDir: paths.stateDir,
-      dokkuBin: flagString(parsed, "dokku-bin") ?? undefined,
       host: flagString(parsed, "host") ?? undefined,
       port: flagInt(parsed, "port") ?? undefined,
     }),

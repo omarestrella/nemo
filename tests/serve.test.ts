@@ -206,9 +206,13 @@ async function makeStateDir(): Promise<string> {
 
 async function startServer(
   stateDir: string,
-  dokkuBin = "/bin/false",
+  dokkuPath: string | null = null,
 ): Promise<string> {
   const port = await findFreePort();
+  const env = { ...Bun.env };
+  if (dokkuPath) {
+    env.PATH = `${resolve(dokkuPath, "..")}:${env.PATH ?? ""}`;
+  }
   const process = Bun.spawn(
     [
       "bun",
@@ -222,11 +226,10 @@ async function startServer(
       String(port),
       "--public-host",
       "test-host",
-      "--dokku-bin",
-      dokkuBin,
     ],
     {
       cwd: rootDir,
+      env,
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",

@@ -33,9 +33,10 @@ sudo systemctl enable --now nemo-agent
 sudo nemo-agent doctor --state-dir /var/lib/nemo-agent
 ```
 
-`nemo-agent init` creates the `nemo-agent` system user, a restrictive state
-directory, a read-only Dokku wrapper, a sudoers rule for that wrapper, and a
-systemd unit that binds the service to `127.0.0.1:7331`.
+`nemo-agent init` creates a restrictive state directory and a systemd unit that
+binds the service to `127.0.0.1:7331`. The unit runs the compiled agent as root
+and uses `dokku` from the service environment PATH. The agent keeps Dokku
+command execution limited in code to the read-only commands needed by the API.
 
 If you run `init` without root privileges, it prints the shell commands needed
 to install those host artifacts.
@@ -160,5 +161,5 @@ After the macOS client is usable, the likely next packaging step is:
 - Debian package for Linux host artifacts and systemd integration.
 - Homebrew formula or tap for installing the macOS app and CLI helpers.
 
-The project should avoid package formats that hide the read-only Dokku wrapper,
-sudoers rule, or systemd unit from review.
+The project should avoid package formats that hide the systemd unit or state
+layout from review.

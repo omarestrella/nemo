@@ -55,7 +55,6 @@ function parseArgs(argv: string[]): ParsedArgs {
     options: {
       "command-concurrency": { type: "string" },
       "command-timeout-ms": { type: "string" },
-      "dokku-bin": { type: "string" },
       endpoint: { type: "string" },
       fix: { type: "boolean" },
       h: { type: "boolean" },
