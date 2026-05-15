@@ -64,6 +64,7 @@ describe("nemo-agent Dokku Docker integration", () => {
   it(
     "pairs and serves real Dokku status over the live HTTP API",
     async () => {
+      let proxy: { endpoint: string; stop: () => void } | null = null;
       try {
         await assertDockerAvailable();
 
@@ -211,6 +212,9 @@ describe("nemo-agent Dokku Docker integration", () => {
         await startAgent();
         const endpoint = await endpointUrl();
         await waitForHealth(endpoint);
+        proxy = await startPathProxy(endpoint);
+        const proxiedEndpoint = proxy.endpoint;
+        await waitForHealth(proxiedEndpoint);
 
         const pairing = await startPairing();
         const exchange = await postJson(`${endpoint}/v1/pairing/exchange`, {
@@ -274,11 +278,19 @@ describe("nemo-agent Dokku Docker integration", () => {
         const events = await getJson(`${endpoint}/v1/events?limit=50`, credential);
         assert(events.status === "ok", "Events endpoint did not report ok");
         assert(Array.isArray(events.events), "Events endpoint missed events array");
+
+        const proxiedMeta = await getJson(`${proxiedEndpoint}/v1/meta`, credential);
+        assert(
+          proxiedMeta.instanceId === meta.instanceId,
+          "Reverse proxy route did not forward authenticated API requests",
+        );
       } catch (error) {
         if (containerStarted) {
           await printDiagnostics();
         }
         throw error;
+      } finally {
+        proxy?.stop();
       }
     },
     10 * 60_000,
@@ -416,6 +428,48 @@ async function waitForHealth(endpoint: string): Promise<void> {
     },
     60_000,
   );
+}
+
+async function startPathProxy(
+  targetEndpoint: string,
+): Promise<{ endpoint: string; stop: () => void }> {
+  const proxy = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const incoming = new URL(request.url);
+      if (incoming.pathname === "/_nemo") {
+        return Response.redirect(`${incoming.origin}/_nemo/`, 308);
+      }
+      if (!incoming.pathname.startsWith("/_nemo/")) {
+        return Response.json(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: "Not found",
+              retryable: false,
+            },
+          },
+          { status: 404 },
+        );
+      }
+      const target = new URL(targetEndpoint);
+      target.pathname = incoming.pathname.slice("/_nemo".length);
+      target.search = incoming.search;
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+      return await fetch(target, {
+        method: request.method,
+        headers: request.headers,
+        body: hasBody ? request.body : undefined,
+        redirect: "manual",
+      });
+    },
+  });
+
+  return {
+    endpoint: `http://${proxy.hostname}:${proxy.port}/_nemo`,
+    stop: () => proxy.stop(true),
+  };
 }
 
 async function startPairing(): Promise<{ id: string; code: string }> {

@@ -25,6 +25,11 @@ bun src/index.ts pair start --state-dir .nemo-agent --name "Dev Mac" --endpoint 
 bun src/index.ts serve --state-dir .nemo-agent
 ```
 
+Exposure and installation notes are in
+[docs/exposure-and-packaging.md](docs/exposure-and-packaging.md). The supported
+remote shapes are a narrow HTTPS reverse-proxy route, Tailscale Serve, or a
+user-managed SSH tunnel to the default localhost listener.
+
 Run tests and compile Linux binaries:
 
 ```bash

@@ -84,10 +84,11 @@ Done:
 - `doctor` reports pass/warn/fail across agent binary metadata, host state,
   service artifacts, systemd posture, listener binding, Dokku discovery,
   privilege-path command access, and service-user database readability.
+- Reverse proxy, Tailscale Serve, SSH tunnel, HTTPS, and first packaging
+  direction are documented in `docs/exposure-and-packaging.md`.
 
 Not done:
 
-- Reverse proxy / Tailscale Serve / SSH tunnel docs.
 - Native macOS menu bar app beyond the starter Xcode scaffold.
 - App detail, logs/events UI, refresh strategy, pinned apps, notifications,
   optional SSH transport, and optional write actions.
@@ -96,11 +97,10 @@ Not done:
 
 Work these roughly in order:
 
-1. [Exposure and packaging docs](tasks/03-exposure-and-packaging-docs.md)
-2. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
-3. [Daily driver polish](tasks/05-daily-driver-polish.md)
-4. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
-5. [Optional write actions](tasks/07-optional-write-actions.md)
+1. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
+2. [Daily driver polish](tasks/05-daily-driver-polish.md)
+3. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
+4. [Optional write actions](tasks/07-optional-write-actions.md)
 
 ## Guardrails
 
