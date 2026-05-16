@@ -37,8 +37,9 @@ const BROWSER_PAIRING_POLL_INTERVAL_SECONDS = 2;
 
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
+  const dokkuHelper = flagString(parsed, "dokku-helper");
   const runner = new DokkuCommandRunner({
-    binary: "dokku",
+    commandPrefix: dokkuHelper ? ["sudo", "-n", dokkuHelper] : ["dokku"],
     timeoutMs: flagInt(parsed, "command-timeout-ms") ?? 8_000,
     outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
     concurrency: flagInt(parsed, "command-concurrency") ?? 4,

@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 
-import { evaluateListenerCheck } from "../src/agent/commands/doctor";
+import { evaluateListenerCheck } from "../src/agent/doctor/listener";
 import {
   defaultInstallPaths,
+  DOKKU_READONLY_HELPER_PATH,
   renderAvahiService,
+  renderDokkuReadonlyHelper,
+  renderSudoers,
   renderSystemdUnit,
   type InstallPaths,
 } from "../src/agent/install";
@@ -23,8 +26,10 @@ test("host install defaults to a LAN-reachable listener", () => {
 
 test("systemd unit binds the configured listener", () => {
   expect(renderSystemdUnit(paths)).toContain(
-    "ExecStart=/usr/local/bin/nemo-agent serve --state-dir /var/lib/nemo-agent --host 0.0.0.0 --port 7331",
+    `ExecStart=/usr/local/bin/nemo-agent serve --state-dir /var/lib/nemo-agent --host 0.0.0.0 --port 7331 --dokku-helper ${DOKKU_READONLY_HELPER_PATH}`,
   );
+  expect(renderSystemdUnit(paths)).toContain("User=nemo-agent");
+  expect(renderSystemdUnit(paths)).toContain("Group=nemo-agent");
 });
 
 test("Avahi service advertises the Nemo agent endpoint", () => {
@@ -33,6 +38,20 @@ test("Avahi service advertises the Nemo agent endpoint", () => {
   expect(service).toContain("<port>7331</port>");
   expect(service).toContain("<txt-record>apiVersion=1</txt-record>");
   expect(service).toContain("<txt-record>path=/</txt-record>");
+});
+
+test("sudoers policy only grants the service user access to the read helper", () => {
+  expect(renderSudoers()).toContain(
+    `nemo-agent ALL=(root) NOPASSWD: ${DOKKU_READONLY_HELPER_PATH} *`,
+  );
+});
+
+test("Dokku read helper validates commands before execing Dokku", () => {
+  const helper = renderDokkuReadonlyHelper();
+  expect(helper).toContain("nemo-agent: Dokku command is not allowlisted");
+  expect(helper).toContain('exec dokku "$@"');
+  expect(helper).toContain('[ "$1" = "logs" ]');
+  expect(helper).not.toContain("config:set");
 });
 
 test("listener check fails loopback listener when expecting all interfaces", () => {

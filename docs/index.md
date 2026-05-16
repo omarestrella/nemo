@@ -77,8 +77,9 @@ Done:
 - The Docker integration covers the installed service shape and asserts the
   systemd unit does not pin a custom Dokku binary path.
 - Linux x64 and Linux arm64 compile scripts exist.
-- Agent host install scaffolding exists for restrictive config/state layout and
-  a systemd unit.
+- Agent host install scaffolding exists for restrictive config/state layout, a
+  non-root systemd service user, a constrained Dokku read helper, and a systemd
+  unit.
 - The Linux arm64 agent has been deployed and smoke-tested on `rpi.local`
   against a real Dokku host.
 - `doctor` reports pass/warn/fail across agent binary metadata, host state,
