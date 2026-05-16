@@ -1,6 +1,7 @@
 import {
-  DOKKU_READONLY_HELPER_PATH,
-  HELPER_DIR,
+  DOKKU_WRAPPER_CONTENTS,
+  DOKKU_WRAPPER_PATH,
+  WRAPPER_DIR,
   INSTALLED_BINARY_PATH,
   SERVICE_GROUP,
   SERVICE_USER,
@@ -9,7 +10,6 @@ import {
   defaultInstallPaths,
   ensureAgentStateOwnership,
   ensureHostInstall,
-  renderDokkuReadonlyHelper,
   renderSudoers,
   renderSystemdUnit,
 } from "../install";
@@ -104,16 +104,16 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
       run: () => modeOwnerCheck("database", paths.databasePath, 0o600, SERVICE_USER, SERVICE_GROUP),
     },
     {
-      name: "helper directory",
-      run: () => modeOwnerCheck("helper directory", HELPER_DIR, 0o755, "root", "root"),
+      name: "wrapper directory",
+      run: () => modeOwnerCheck("wrapper directory", WRAPPER_DIR, 0o755, "root", "root"),
     },
     {
-      name: "Dokku read helper",
+      name: "Dokku wrapper",
       run: () =>
         fileCheck(
-          "Dokku read helper",
-          DOKKU_READONLY_HELPER_PATH,
-          renderDokkuReadonlyHelper(),
+          "Dokku wrapper",
+          DOKKU_WRAPPER_PATH,
+          DOKKU_WRAPPER_CONTENTS,
           0o755,
           "root",
           "root",

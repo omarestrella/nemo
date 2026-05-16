@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 
-import logoPath from "../../../assets/web/nemo-app-icon.png" with { type: "file" };
+import logoPath from "../../../assets/images/nemo-app-icon.png" with { type: "file" };
 import pairCssPath from "../../../assets/web/pair.css" with { type: "file" };
 import pairHtmlPath from "../../../assets/web/pair.html" with { type: "file" };
 import pairJsPath from "../../../assets/web/pair.js" with { type: "file" };
@@ -12,34 +12,24 @@ import {
 } from "../dokku";
 import { NemoError } from "../errors";
 import { auth, errors, handler } from "../http";
-import { codeChallengeS256, isValidPkceValue, safeEndpoint } from "../pairing";
+import {
+  codeChallengeS256,
+  createBrowserPairingChallenge,
+  isValidPkceValue,
+  safeEndpoint,
+  type BrowserPairingChallenge,
+} from "../pairing";
 import { AgentState } from "../storage";
 import { AGENT_VERSION, API_VERSION } from "../types";
-import { randomHex } from "../crypto";
 import { flagInt, flagString, stateDir, type ParsedArgs } from "./args";
 
-interface BrowserPairingChallenge {
-  token: string;
-  endpoint: string;
-  deviceName: string;
-  codeChallenge: string;
-  codeChallengeMethod: "S256";
-  createdAt: string;
-  expiresAt: string;
-  consumed: boolean;
-  approvedAt: string | null;
-  deniedAt: string | null;
-  approvedDeviceName: string | null;
-}
-
-const BROWSER_PAIRING_TTL_SECONDS = 120;
 const BROWSER_PAIRING_POLL_INTERVAL_SECONDS = 2;
 
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
-  const dokkuHelper = flagString(parsed, "dokku-helper");
+  const dokkuWrapper = flagString(parsed, "dokku-wrapper");
   const runner = new DokkuCommandRunner({
-    commandPrefix: dokkuHelper ? ["sudo", "-n", dokkuHelper] : ["dokku"],
+    commandPrefix: dokkuWrapper ? ["sudo", "-n", dokkuWrapper] : ["dokku"],
     timeoutMs: flagInt(parsed, "command-timeout-ms") ?? 8_000,
     outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
     concurrency: flagInt(parsed, "command-concurrency") ?? 4,
@@ -217,7 +207,10 @@ function getBrowserPairingChallenge(
   challenges: Map<string, BrowserPairingChallenge>,
 ): Response {
   pruneBrowserPairingChallenges(challenges);
-  const challenge = challengeFromRequest(request, challenges);
+  const challenge = getLiveBrowserPairingChallenge(
+    challenges,
+    new URL(request.url).searchParams.get("challenge"),
+  );
   if (!challenge) {
     throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
       status: 404,
@@ -327,43 +320,13 @@ async function exchangeBrowserPairing(
   });
 }
 
-function createBrowserPairingChallenge(endpoint: string, deviceName: string, codeChallenge: string): BrowserPairingChallenge {
-  const now = new Date();
-  return {
-    token: randomHex(32),
-    endpoint,
-    deviceName,
-    codeChallenge,
-    codeChallengeMethod: "S256",
-    createdAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + BROWSER_PAIRING_TTL_SECONDS * 1000).toISOString(),
-    consumed: false,
-    approvedAt: null,
-    deniedAt: null,
-    approvedDeviceName: null,
-  };
-}
-
-function challengeFromRequest(
-  request: Request,
+function getLiveBrowserPairingChallenge(
   challenges: Map<string, BrowserPairingChallenge>,
+  token: string | null | undefined,
 ): BrowserPairingChallenge | null {
-  const token = new URL(request.url).searchParams.get("challenge");
   if (!token) {
     return null;
   }
-  const challenge = challenges.get(token);
-  if (!challenge || challenge.consumed || challenge.expiresAt <= new Date().toISOString()) {
-    challenges.delete(token);
-    return null;
-  }
-  return challenge;
-}
-
-function getLiveBrowserPairingChallenge(
-  challenges: Map<string, BrowserPairingChallenge>,
-  token: string,
-): BrowserPairingChallenge | null {
   const challenge = challenges.get(token);
   if (!challenge || challenge.consumed || challenge.expiresAt <= new Date().toISOString()) {
     challenges.delete(token);

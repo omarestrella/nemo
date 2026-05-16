@@ -78,7 +78,7 @@ Done:
   systemd unit does not pin a custom Dokku binary path.
 - Linux x64 and Linux arm64 compile scripts exist.
 - Agent host install scaffolding exists for restrictive config/state layout, a
-  non-root systemd service user, a constrained Dokku read helper, and a systemd
+  non-root systemd service user, a constrained Dokku wrapper, and a systemd
   unit.
 - The Linux arm64 agent has been deployed and smoke-tested on `rpi.local`
   against a real Dokku host.
@@ -90,7 +90,6 @@ Done:
 
 Not done:
 
-- Native macOS menu bar app beyond the starter Xcode scaffold.
 - App detail, logs/events UI, refresh strategy, pinned apps, notifications,
   optional SSH transport, and optional write actions.
 
@@ -98,10 +97,9 @@ Not done:
 
 Work these roughly in order:
 
-1. [macOS menu bar MVP](tasks/04-macos-menubar-mvp.md)
-2. [Daily driver polish](tasks/05-daily-driver-polish.md)
-3. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
-4. [Optional write actions](tasks/07-optional-write-actions.md)
+1. [Daily driver polish](tasks/05-daily-driver-polish.md)
+2. [Optional SSH transport](tasks/06-optional-ssh-transport.md)
+3. [Optional write actions](tasks/07-optional-write-actions.md)
 
 ## Guardrails
 

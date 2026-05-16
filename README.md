@@ -47,7 +47,7 @@ several minutes the first time it pulls the Dokku image.
 
 The installed systemd service runs as the dedicated `nemo-agent` user. Root is
 only required for install/repair of host artifacts and for the constrained
-Dokku read helper invoked by the service.
+Dokku wrapper invoked by the service.
 
 The agent binds to `0.0.0.0` by default and exposes `/v1/health`,
 `/v1/meta`, `/v1/platform/version`, `/v1/apps`, and `/v1/apps/{app}`.

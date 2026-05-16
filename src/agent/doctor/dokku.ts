@@ -1,5 +1,5 @@
 import { DokkuAdapter, DokkuCommandRunner, isAllowedDokkuArgs } from "../dokku";
-import { DOKKU_READONLY_HELPER_PATH, SERVICE_USER } from "../install";
+import { DOKKU_WRAPPER_PATH, SERVICE_USER } from "../install";
 import { firstLine, isCommandAccessDenied, run } from "./process";
 import type { Check } from "./types";
 
@@ -34,10 +34,10 @@ export async function serviceDokkuCommandPrefix(): Promise<string[]> {
       SERVICE_USER,
       "/usr/bin/sudo",
       "-n",
-      DOKKU_READONLY_HELPER_PATH,
+      DOKKU_WRAPPER_PATH,
     ];
   }
-  return ["sudo", "-n", DOKKU_READONLY_HELPER_PATH];
+  return ["sudo", "-n", DOKKU_WRAPPER_PATH];
 }
 
 export async function serviceDokkuSudoCheck(): Promise<Check> {
@@ -64,8 +64,8 @@ export async function serviceDokkuSudoCheck(): Promise<Check> {
     detail:
       result.exitCode === 0
         ? verifyingServiceUser
-          ? "service user can run read helper without a password"
-          : "current user can run read helper without a password"
+          ? "service user can run wrapper without a password"
+          : "current user can run wrapper without a password"
         : firstLine(
             result.stderr ||
               result.stdout ||
