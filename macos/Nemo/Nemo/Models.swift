@@ -74,7 +74,9 @@ struct PairingExchangeResponse: Decodable {
 struct BrowserPairingStartResponse: Decodable {
     let pairUrl: String
     let challenge: String
+    let deviceCode: String
     let expiresAt: String
+    let intervalSeconds: Double
 }
 
 struct PairingServer: Decodable {

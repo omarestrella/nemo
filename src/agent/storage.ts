@@ -315,6 +315,13 @@ export class AgentState {
     };
   }
 
+  issueCredential(options: { deviceName: string; scope?: string }): { token: string; record: PublicCredential } {
+    return this.createCredential({
+      deviceName: options.deviceName.trim() || "Nemo Device",
+      scope: options.scope ?? "read",
+    });
+  }
+
   listCredentials(includeRevoked = true): PublicCredential[] {
     const sql = includeRevoked
       ? "SELECT * FROM credentials ORDER BY created_at DESC"

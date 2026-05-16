@@ -21,12 +21,18 @@ interface BrowserPairingChallenge {
   token: string;
   endpoint: string;
   deviceName: string;
+  codeChallenge: string;
+  codeChallengeMethod: "S256";
   createdAt: string;
   expiresAt: string;
   consumed: boolean;
+  approvedAt: string | null;
+  deniedAt: string | null;
+  approvedDeviceName: string | null;
 }
 
 const BROWSER_PAIRING_TTL_SECONDS = 120;
+const BROWSER_PAIRING_POLL_INTERVAL_SECONDS = 2;
 
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
@@ -66,7 +72,13 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
         GET: handler(errors, async (request) => getBrowserPairingChallenge(request, browserPairingChallenges)),
       },
       "/v1/pairing/browser/complete": {
-        POST: handler(errors, async (request) => completeBrowserPairing(request, state, browserPairingChallenges)),
+        POST: handler(errors, async (request) => completeBrowserPairing(request, browserPairingChallenges)),
+      },
+      "/v1/pairing/browser/exchange": {
+        POST: handler(
+          errors,
+          async (request) => await exchangeBrowserPairing(request, state, browserPairingChallenges, publicHost),
+        ),
       },
       "/v1/health": {
         GET: () =>
@@ -179,12 +191,20 @@ async function startBrowserPairing(
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
-    // Body is optional so older callers can still trigger a browser challenge.
+    // The route still returns structured BAD_REQUEST below for missing PKCE fields.
+  }
+
+  const codeChallenge = String(body.codeChallenge ?? "");
+  const codeChallengeMethod = String(body.codeChallengeMethod ?? "");
+  if (codeChallengeMethod !== "S256" || !isValidCodeChallenge(codeChallenge)) {
+    throw new NemoError("BAD_REQUEST", "A valid S256 code challenge is required", {
+      status: 400,
+    });
   }
 
   const endpoint = safeEndpoint(String(body.endpoint ?? ""), request);
   const deviceName = String(body.deviceName ?? "").trim() || "Nemo Mac";
-  const challenge = createBrowserPairingChallenge(endpoint, deviceName);
+  const challenge = createBrowserPairingChallenge(endpoint, deviceName, codeChallenge);
   challenges.set(challenge.token, challenge);
   pruneBrowserPairingChallenges(challenges);
 
@@ -193,7 +213,9 @@ async function startBrowserPairing(
   return Response.json({
     pairUrl: pairUrl.toString(),
     challenge: challenge.token,
+    deviceCode: challenge.token,
     expiresAt: challenge.expiresAt,
+    intervalSeconds: BROWSER_PAIRING_POLL_INTERVAL_SECONDS,
   });
 }
 
@@ -208,16 +230,21 @@ function getBrowserPairingChallenge(
       status: 404,
     });
   }
+  if (challenge.approvedAt || challenge.deniedAt) {
+    throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
+      status: 404,
+    });
+  }
   return Response.json({
     endpoint: challenge.endpoint,
     deviceName: challenge.deviceName,
+    status: browserPairingStatus(challenge),
     expiresAt: challenge.expiresAt,
   });
 }
 
 async function completeBrowserPairing(
   request: Request,
-  state: AgentState,
   challenges: Map<string, BrowserPairingChallenge>,
 ): Promise<Response> {
   let body: Record<string, unknown>;
@@ -228,7 +255,7 @@ async function completeBrowserPairing(
   }
 
   const challengeToken = String(body.challenge ?? "");
-  const challenge = consumeBrowserPairingChallenge(challenges, challengeToken);
+  const challenge = getLiveBrowserPairingChallenge(challenges, challengeToken);
   if (!challenge) {
     throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
       status: 404,
@@ -236,27 +263,74 @@ async function completeBrowserPairing(
   }
 
   if (body.decision !== "approve") {
+    challenge.deniedAt = new Date().toISOString();
     return Response.json({ status: "denied" });
   }
 
   const deviceName = String(body.deviceName ?? "").trim() || challenge.deviceName || "Nemo Mac";
-  const session = await state.createPairingSession({
-    expectedDeviceName: deviceName,
-    scope: "read",
-    ttlSeconds: 600,
-    maxAttempts: 5,
-  });
-  const setupUri = new URL("nemo://pair");
-  setupUri.searchParams.set("endpoint", challenge.endpoint);
-  setupUri.searchParams.set("id", session.id);
-  setupUri.searchParams.set("code", session.code);
+  challenge.approvedAt = new Date().toISOString();
+  challenge.approvedDeviceName = deviceName;
 
   return Response.json({
     status: "approved",
-    setupUri: setupUri.toString(),
-    id: session.id,
-    code: session.code,
-    expiresAt: session.expiresAt,
+    expiresAt: challenge.expiresAt,
+  });
+}
+
+async function exchangeBrowserPairing(
+  request: Request,
+  state: AgentState,
+  challenges: Map<string, BrowserPairingChallenge>,
+  hostName: string,
+): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    throw new NemoError("BAD_REQUEST", "Invalid JSON body", { status: 400 });
+  }
+
+  const token = String(body.deviceCode ?? body.challenge ?? "");
+  const challenge = getLiveBrowserPairingChallenge(challenges, token);
+  if (!challenge) {
+    throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
+      status: 404,
+    });
+  }
+  if (challenge.deniedAt) {
+    throw new NemoError("PAIRING_EXCHANGE_FAILED", "Pairing request was denied", {
+      status: 403,
+    });
+  }
+  if (!challenge.approvedAt) {
+    throw new NemoError("PAIRING_AUTHORIZATION_PENDING", "Pairing request has not been approved yet", {
+      status: 428,
+      retryable: true,
+    });
+  }
+
+  const codeVerifier = String(body.codeVerifier ?? "");
+  if (!isValidCodeVerifier(codeVerifier) || codeChallengeS256(codeVerifier) !== challenge.codeChallenge) {
+    throw new NemoError("PAIRING_VERIFIER_INVALID", "Pairing verifier did not match this challenge", {
+      status: 401,
+    });
+  }
+
+  challenge.consumed = true;
+  challenges.delete(challenge.token);
+  const deviceName = String(body.deviceName ?? "").trim() || challenge.approvedDeviceName || challenge.deviceName || "Nemo Device";
+  const credential = state.issueCredential({ deviceName, scope: "read" });
+
+  return Response.json({
+    credential: credential.token,
+    credentialRecord: credential.record,
+    server: {
+      apiVersion: API_VERSION,
+      agentVersion: AGENT_VERSION,
+      instanceId: state.getInstanceId(),
+      host: hostName,
+      platform: "dokku",
+    },
   });
 }
 
@@ -291,15 +365,20 @@ function isTrustedPairingAddress(address: string): boolean {
   return false;
 }
 
-function createBrowserPairingChallenge(endpoint: string, deviceName: string): BrowserPairingChallenge {
+function createBrowserPairingChallenge(endpoint: string, deviceName: string, codeChallenge: string): BrowserPairingChallenge {
   const now = new Date();
   return {
     token: randomHex(32),
     endpoint,
     deviceName,
+    codeChallenge,
+    codeChallengeMethod: "S256",
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + BROWSER_PAIRING_TTL_SECONDS * 1000).toISOString(),
     consumed: false,
+    approvedAt: null,
+    deniedAt: null,
+    approvedDeviceName: null,
   };
 }
 
@@ -319,7 +398,7 @@ function challengeFromRequest(
   return challenge;
 }
 
-function consumeBrowserPairingChallenge(
+function getLiveBrowserPairingChallenge(
   challenges: Map<string, BrowserPairingChallenge>,
   token: string,
 ): BrowserPairingChallenge | null {
@@ -328,8 +407,6 @@ function consumeBrowserPairingChallenge(
     challenges.delete(token);
     return null;
   }
-  challenge.consumed = true;
-  challenges.delete(token);
   return challenge;
 }
 
@@ -340,6 +417,29 @@ function pruneBrowserPairingChallenges(challenges: Map<string, BrowserPairingCha
       challenges.delete(token);
     }
   }
+}
+
+function browserPairingStatus(challenge: BrowserPairingChallenge): "pending" | "approved" | "denied" {
+  if (challenge.deniedAt) {
+    return "denied";
+  }
+  if (challenge.approvedAt) {
+    return "approved";
+  }
+  return "pending";
+}
+
+function isValidCodeChallenge(value: string): boolean {
+  return /^[A-Za-z0-9_-]{43,128}$/.test(value);
+}
+
+function isValidCodeVerifier(value: string): boolean {
+  return /^[A-Za-z0-9._~-]{43,128}$/.test(value);
+}
+
+function codeChallengeS256(verifier: string): string {
+  const digest = new Bun.CryptoHasher("sha256").update(verifier).digest();
+  return Buffer.from(digest).toString("base64url");
 }
 
 function endpointFromRequest(request: Request): string {
