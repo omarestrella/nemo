@@ -1,5 +1,7 @@
 import Foundation
 import AppKit
+import CryptoKit
+import Security
 import SwiftUI
 
 @Observable
@@ -22,6 +24,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
     private let discoveryService = AgentDiscoveryService()
     private var credential: String?
     private var refreshTask: Task<Void, Never>?
+    private var browserPairingTask: Task<Void, Never>?
 
     init() {
         self.profile = Self.loadProfile()
@@ -105,16 +108,28 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         status = .loading
         let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
         do {
+            let verifier = try makeBrowserPairingVerifier()
             let response = try await client.startBrowserPairing(
                 endpoint: endpoint.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
-                deviceName: Host.current().localizedName ?? "Nemo Mac"
+                deviceName: Host.current().localizedName ?? "Nemo Mac",
+                codeChallenge: codeChallengeS256(verifier)
             )
             guard let url = URL(string: response.pairUrl) else {
                 status = .failed("Agent returned an invalid pairing URL.")
                 return
             }
             NSWorkspace.shared.open(url)
-            status = .failed("Complete pairing in your browser.")
+            status = .loading
+            browserPairingTask?.cancel()
+            browserPairingTask = Task { [weak self] in
+                await self?.pollBrowserPairing(
+                    endpoint: endpoint,
+                    deviceCode: response.deviceCode,
+                    codeVerifier: verifier,
+                    expiresAt: response.expiresAt,
+                    intervalSeconds: response.intervalSeconds
+                )
+            }
         } catch let error as TransportError {
             status = transportStatus(from: error)
         } catch {
@@ -134,6 +149,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
     }
 
     func forgetCredential() {
+        browserPairingTask?.cancel()
         try? keychain.deleteCredential(account: Self.credentialAccount)
         credential = nil
         serverMeta = nil
@@ -186,6 +202,52 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         }
     }
 
+    private func pollBrowserPairing(
+        endpoint: URL,
+        deviceCode: String,
+        codeVerifier: String,
+        expiresAt: String,
+        intervalSeconds: Double
+    ) async {
+        let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
+        let deadline = ISO8601DateFormatter().date(from: expiresAt) ?? Date().addingTimeInterval(120)
+        let deviceName = Host.current().localizedName ?? "Nemo Mac"
+
+        while !Task.isCancelled && Date() < deadline {
+            do {
+                let response = try await client.exchangeBrowserPairing(
+                    deviceCode: deviceCode,
+                    codeVerifier: codeVerifier,
+                    deviceName: deviceName
+                )
+                guard response.server.apiVersion == "1" else {
+                    status = .failed("Unsupported agent API version \(response.server.apiVersion).")
+                    return
+                }
+                try keychain.saveCredential(response.credential, account: Self.credentialAccount)
+                credential = response.credential
+                profile.endpointURL = endpoint.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if profile.displayName == NemoProfile.default.displayName {
+                    profile.displayName = response.server.host
+                }
+                await refresh()
+                return
+            } catch TransportError.api(_, "PAIRING_AUTHORIZATION_PENDING", _) {
+                try? await Task.sleep(for: .seconds(max(1, intervalSeconds)))
+            } catch let error as TransportError {
+                status = transportStatus(from: error)
+                return
+            } catch {
+                status = .failed(error.localizedDescription)
+                return
+            }
+        }
+
+        if !Task.isCancelled {
+            status = .failed("Pairing request expired.")
+        }
+    }
+
     private func runRefreshLoop() async {
         while !Task.isCancelled {
             let seconds = max(10, profile.refreshIntervalSeconds)
@@ -206,6 +268,20 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         return .failed(error.localizedDescription)
     }
 
+    private func makeBrowserPairingVerifier() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw PairingCryptoError.randomFailed
+        }
+        return Data(bytes).base64URLEncodedString()
+    }
+
+    private func codeChallengeS256(_ verifier: String) -> String {
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return Data(digest).base64URLEncodedString()
+    }
+
     private func saveProfile() {
         if let data = try? JSONEncoder().encode(profile) {
             UserDefaults.standard.set(data, forKey: Self.profileDefaultsKey)
@@ -222,4 +298,21 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
 
     private static let profileDefaultsKey = "NemoProfile"
     private static let credentialAccount = "read-credential"
+}
+
+private enum PairingCryptoError: LocalizedError {
+    case randomFailed
+
+    var errorDescription: String? {
+        "Unable to create a pairing verifier."
+    }
+}
+
+private extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }
