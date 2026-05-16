@@ -26,12 +26,7 @@ export async function checkDokku(command: string[]): Promise<Check> {
 }
 
 export async function serviceDokkuCommandPrefix(): Promise<string[]> {
-  if (
-    process.platform === "linux" &&
-    typeof process.getuid === "function" &&
-    process.getuid() === 0 &&
-    (await Bun.file("/usr/bin/sudo").exists())
-  ) {
+  if (isRootOnLinux() && (await hasSystemSudo())) {
     return [
       "/usr/bin/sudo",
       "-n",
@@ -53,44 +48,30 @@ export async function serviceDokkuSudoCheck(): Promise<Check> {
       detail: "not running on Linux",
     };
   }
-  if (!(await Bun.file("/usr/bin/sudo").exists())) {
+  if (!(await hasSystemSudo())) {
     return {
       name: "service Dokku sudo policy",
       status: "FAIL",
       detail: "sudo unavailable",
     };
   }
-  if (typeof process.getuid === "function" && process.getuid() === 0) {
-    const result = await run([
-      "/usr/bin/sudo",
-      "-n",
-      "-u",
-      SERVICE_USER,
-      "/usr/bin/sudo",
-      "-n",
-      DOKKU_READONLY_HELPER_PATH,
-      "version",
-    ]);
-    return {
-      name: "service Dokku sudo policy",
-      status: result.exitCode === 0 ? "PASS" : "FAIL",
-      detail:
-        result.exitCode === 0
-          ? "service user can run read helper without a password"
-          : firstLine(result.stderr || result.stdout || "sudo policy failed"),
-    };
-  }
-  const result = await run(["sudo", "-n", DOKKU_READONLY_HELPER_PATH, "version"]);
+  const verifyingServiceUser = isRootOnLinux();
+  const result = await run([...(await serviceDokkuCommandPrefix()), "version"]);
   return {
     name: "service Dokku sudo policy",
-    status: result.exitCode === 0 ? "PASS" : "WARN",
+    status:
+      result.exitCode === 0 ? "PASS" : verifyingServiceUser ? "FAIL" : "WARN",
     detail:
       result.exitCode === 0
-        ? "current user can run read helper without a password"
+        ? verifyingServiceUser
+          ? "service user can run read helper without a password"
+          : "current user can run read helper without a password"
         : firstLine(
             result.stderr ||
               result.stdout ||
-              "run doctor as root to verify service user sudo policy",
+              (verifyingServiceUser
+                ? "sudo policy failed"
+                : "run doctor as root to verify service user sudo policy"),
           ),
   };
 }
@@ -154,4 +135,16 @@ async function discoverApp(commandPrefix: string[]): Promise<string | null> {
       .map((line) => line.trim())
       .find(Boolean) ?? null
   );
+}
+
+function isRootOnLinux(): boolean {
+  return (
+    process.platform === "linux" &&
+    typeof process.getuid === "function" &&
+    process.getuid() === 0
+  );
+}
+
+async function hasSystemSudo(): Promise<boolean> {
+  return Bun.file("/usr/bin/sudo").exists();
 }

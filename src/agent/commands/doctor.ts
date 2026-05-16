@@ -7,11 +7,13 @@ import {
   SUDOERS_PATH,
   SYSTEMD_UNIT_PATH,
   defaultInstallPaths,
+  ensureAgentStateOwnership,
+  ensureHostInstall,
   renderDokkuReadonlyHelper,
   renderSudoers,
   renderSystemdUnit,
 } from "../install";
-import { resolveStatePaths } from "../storage";
+import { AgentState, ensureStateLayout, resolveStatePaths } from "../storage";
 import { AGENT_VERSION } from "../types";
 import {
   checkDokku,
@@ -29,7 +31,6 @@ import {
 } from "../doctor/files";
 import { listenerCheck } from "../doctor/listener";
 import { compileTargetCheck, userChecks } from "../doctor/platform";
-import { repairDoctorState } from "../doctor/repair";
 import { systemdChecks } from "../doctor/systemd";
 import type { Check } from "../doctor/types";
 import {
@@ -39,8 +40,6 @@ import {
   stateDir,
   type ParsedArgs,
 } from "./args";
-
-export { evaluateListenerCheck } from "../doctor/listener";
 
 type DoctorTask = {
   name: string;
@@ -59,7 +58,14 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
 
   if (fix) {
     console.log("Repairing Nemo agent host artifacts...");
-    await repairDoctorState(paths, installPaths);
+    await ensureHostInstall(installPaths);
+    await ensureStateLayout(paths, { repairUnsafe: true });
+    const state = await AgentState.open({
+      stateDir: paths.stateDir,
+      repairUnsafeLayout: true,
+    });
+    state.close();
+    await ensureAgentStateOwnership(paths);
   }
 
   const serviceCommand = await serviceDokkuCommandPrefix();
