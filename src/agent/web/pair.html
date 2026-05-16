@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pair Nemo</title>
+  <link rel="stylesheet" href="/pair.css">
+</head>
+<body>
+  <main class="shell" data-state="loading">
+    <header class="brand">
+      <img src="/assets/nemo-mark.png" alt="">
+      <div>
+        <strong>Nemo</strong>
+        <span>Dokku sidecar pairing</span>
+      </div>
+    </header>
+
+    <section class="panel status-panel" id="request-panel">
+      <p class="eyebrow" id="state-label">Checking request</p>
+      <h1 id="headline">Loading pairing request</h1>
+      <p class="lede" id="message">Nemo is checking whether this browser session was started from the app.</p>
+      <dl id="details" hidden>
+        <div><dt>Endpoint</dt><dd id="endpoint"></dd></div>
+        <div><dt>Access</dt><dd>Read-only Dokku status</dd></div>
+        <div><dt>Expires</dt><dd id="expires"></dd></div>
+      </dl>
+    </section>
+
+    <section class="panel action-panel" id="action-panel" hidden>
+      <label>
+        Device name
+        <input id="device-name" name="deviceName" maxlength="80" autocomplete="off">
+      </label>
+      <div class="actions">
+        <button class="primary" id="approve" type="button">Approve</button>
+        <button id="deny" type="button">Deny</button>
+      </div>
+    </section>
+
+    <section class="panel result-panel" id="result-panel" hidden>
+      <p class="eyebrow" id="result-label">Approved</p>
+      <h1 id="result-headline">Open Nemo to finish pairing</h1>
+      <p class="lede" id="result-message"></p>
+      <a class="button primary" id="open-nemo" href="#">Open Nemo</a>
+      <p class="hint" id="manual-fallback"></p>
+    </section>
+
+    <p class="footnote" id="footnote">Do not approve this page unless you just started pairing from Nemo.</p>
+  </main>
+  <script type="module" src="/pair.js"></script>
+</body>
+</html>

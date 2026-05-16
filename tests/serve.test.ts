@@ -64,6 +64,114 @@ test("pairing exchange returns a bearer credential that can call meta", async ()
   });
 });
 
+test("browser pairing page approves a setup URI for the app", async () => {
+  const stateDir = await makeStateDir();
+  const url = await startServer(stateDir);
+
+  const page = await fetch(`${url}/pair`);
+  expect(page.status).toBe(200);
+  const pageHtml = await page.text();
+  expect(pageHtml).toContain('<link rel="stylesheet" href="/pair.css">');
+  expect(pageHtml).toContain("started from the app");
+
+  const missingChallenge = await fetch(`${url}/v1/pairing/browser/challenge?challenge=missing`);
+  expect(missingChallenge.status).toBe(404);
+
+  const css = await fetch(`${url}/pair.css`);
+  expect(css.status).toBe(200);
+  expect(await css.text()).toContain(".panel");
+
+  const started = await fetch(`${url}/v1/pairing/browser/start`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac" }),
+  });
+  expect(started.status).toBe(200);
+  const startedBody = (await started.json()) as { pairUrl: string; challenge: string };
+  expect(startedBody.pairUrl).toContain(`${url}/pair?challenge=`);
+  expect(startedBody.challenge).toHaveLength(64);
+
+  const challenge = await fetch(`${url}/v1/pairing/browser/challenge?challenge=${startedBody.challenge}`);
+  expect(challenge.status).toBe(200);
+  expect(await challenge.json()).toMatchObject({
+    endpoint: url,
+    deviceName: "Browser Mac",
+  });
+
+  const deny = await fetch(`${url}/v1/pairing/browser/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      decision: "deny",
+      challenge: startedBody.challenge,
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(deny.status).toBe(200);
+  expect(await deny.json()).toMatchObject({ status: "denied" });
+  {
+    const state = await AgentState.open({ stateDir });
+    expect(state.listPairingSessions()).toHaveLength(0);
+    state.close();
+  }
+
+  const secondStart = await fetch(`${url}/v1/pairing/browser/start`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac" }),
+  });
+  const secondStartBody = (await secondStart.json()) as { pairUrl: string; challenge: string };
+  const approve = await fetch(`${url}/v1/pairing/browser/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      decision: "approve",
+      challenge: secondStartBody.challenge,
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(approve.status).toBe(200);
+  const approveBody = (await approve.json()) as { setupUri: string };
+  const setupUri = approveBody.setupUri;
+  expect(setupUri).toBeTruthy();
+  const setup = new URL(setupUri ?? "");
+  expect(setup.searchParams.get("endpoint")).toBe(url);
+  const credential = await exchangeCredential(url, {
+    id: setup.searchParams.get("id") ?? "",
+    code: setup.searchParams.get("code") ?? "",
+  });
+  expect(credential.startsWith("nemo_")).toBe(true);
+
+  const replay = await fetch(`${url}/v1/pairing/browser/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      decision: "approve",
+      challenge: secondStartBody.challenge,
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(replay.status).toBe(404);
+});
+
+test("browser pairing challenge trigger rejects public forwarded clients", async () => {
+  const stateDir = await makeStateDir();
+  const url = await startServer(stateDir);
+
+  const response = await fetch(`${url}/v1/pairing/browser/start`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-for": "203.0.113.10",
+    },
+    body: JSON.stringify({ endpoint: url, deviceName: "Internet Mac" }),
+  });
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({
+    error: { code: "PAIRING_TRIGGER_FORBIDDEN", retryable: false },
+  });
+});
+
 test("logs and events require dedicated read scopes", async () => {
   const stateDir = await makeStateDir();
   const dokkuBin = await makeFakeDokku();

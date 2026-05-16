@@ -40,10 +40,7 @@ Linux binaries. The target host should not need Node.js, npm, or a source
 checkout to run it. The macOS app talks to a versioned JSON API and stores
 paired credentials in macOS Keychain.
 
-Remote access is a transport problem, not Nemo's auth system. The agent binds
-to `127.0.0.1` by default. If users want remote access, they explicitly expose a
-narrow route through a reverse proxy, Tailscale Serve, or a user-managed SSH
-tunnel. Nemo still authenticates requests with paired bearer credentials.
+Remote access is a transport problem, not Nemo's auth system. The agent binds to `0.0.0.0` by default for trusted LAN discovery. For untrusted networks, users should expose a narrow route through a reverse proxy, Tailscale Serve, or a user-managed SSH tunnel. Nemo still authenticates requests with paired bearer credentials.
 
 The first product version is read-only. Write actions such as restarts,
 rebuilds, or certificate renewals are intentionally out of scope until the
@@ -77,11 +74,15 @@ Done:
   concurrency-limited.
 - Fast Bun tests and a real Dokku Docker integration test run through
   `bun test`.
+- The Docker integration covers the installed service shape and asserts the
+  systemd unit does not pin a custom Dokku binary path.
 - Linux x64 and Linux arm64 compile scripts exist.
 - Agent host install scaffolding exists for restrictive config/state layout and
   a systemd unit.
+- The Linux arm64 agent has been deployed and smoke-tested on `rpi.local`
+  against a real Dokku host.
 - `doctor` reports pass/warn/fail across agent binary metadata, host state,
-  service artifacts, systemd posture, listener binding, Dokku discovery,
+  service artifacts, systemd posture, listener binding, service discovery, Dokku discovery,
   read-command access, and service database readability.
 - Reverse proxy, Tailscale Serve, SSH tunnel, HTTPS, and first packaging
   direction are documented in `docs/exposure-and-packaging.md`.
@@ -107,9 +108,9 @@ Work these roughly in order:
 - Do not expose arbitrary shell execution.
 - Do not store SSH private keys or DNS provider credentials.
 - Do not require Tailscale, a tailnet, local SSH agent, or 1Password.
-- Bind the sidecar to `127.0.0.1` by default.
+- Bind the sidecar to `0.0.0.0` by default for trusted LAN discovery.
 - Remote exposure is user-owned through a reverse proxy, Tailscale Serve rule,
   or SSH tunnel.
-- Require HTTPS for non-loopback app connections by default.
+- Prefer HTTPS for untrusted remote exposure; trusted LAN and loopback HTTP are supported.
 - Store app-side secrets in macOS Keychain.
 - Keep read and write scopes separate if write actions are added later.

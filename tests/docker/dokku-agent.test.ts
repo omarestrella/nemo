@@ -186,6 +186,10 @@ describe("nemo-agent Dokku Docker integration", () => {
           systemdUnit.stdout.includes("ProtectHome=read-only"),
           "systemd unit must keep Dokku home readable",
         );
+        assert(
+          systemdUnit.stdout.includes("--host 0.0.0.0"),
+          "systemd unit must bind to the default LAN-reachable host",
+        );
         assert(!systemdUnit.stdout.includes("--dokku-bin"), "systemd unit must not pin a Dokku path");
 
         const doctor = await exec(
@@ -200,6 +204,10 @@ describe("nemo-agent Dokku Docker integration", () => {
         assert(
           doctor.stdout.includes("PASS read command version"),
           "doctor must execute expected read commands through the configured Dokku binary",
+        );
+        assert(
+          doctor.stdout.includes("service discovery"),
+          "doctor must report service discovery posture",
         );
 
         await startAgent();
