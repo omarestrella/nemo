@@ -1,17 +1,50 @@
 import Foundation
 
-struct HTTPJSONTransport {
-    var endpoint: URL
-    var credential: String?
+struct NemoClient {
+    let endpoint: URL
+    let credential: String?
     var session: URLSession = .shared
 
-    func get<T: Decodable>(_ path: String) async throws -> T {
+    func health() async throws -> AgentHealth {
+        try await get("/v1/health")
+    }
+
+    func meta() async throws -> ServerMeta {
+        try await get("/v1/meta")
+    }
+
+    func apps() async throws -> [AppSummary] {
+        let response: AppsResponse = try await get("/v1/apps")
+        return response.apps.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func exchangePairing(id: String, code: String, deviceName: String) async throws -> PairingExchangeResponse {
+        let request = PairingExchangeRequest(pairingId: id, code: code, deviceName: deviceName)
+        return try await post("/v1/pairing/exchange", body: request)
+    }
+
+    func startBrowserPairing(endpoint: String, deviceName: String, codeChallenge: String) async throws -> BrowserPairingStartResponse {
+        let request = BrowserPairingStartRequest(
+            endpoint: endpoint,
+            deviceName: deviceName,
+            codeChallenge: codeChallenge,
+            codeChallengeMethod: "S256"
+        )
+        return try await post("/v1/pairing/browser/start", body: request)
+    }
+
+    func exchangeBrowserPairing(deviceCode: String, codeVerifier: String, deviceName: String) async throws -> PairingExchangeResponse {
+        let request = BrowserPairingExchangeRequest(deviceCode: deviceCode, codeVerifier: codeVerifier, deviceName: deviceName)
+        return try await post("/v1/pairing/browser/exchange", body: request)
+    }
+
+    private func get<T: Decodable>(_ path: String) async throws -> T {
         var request = try request(path: path)
         request.httpMethod = "GET"
         return try await send(request)
     }
 
-    func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
+    private func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
         var request = try request(path: path)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -97,4 +130,90 @@ enum TransportError: LocalizedError {
             return "Unsupported agent response."
         }
     }
+}
+
+private struct PairingExchangeRequest: Encodable {
+    let pairingId: String
+    let code: String
+    let deviceName: String
+}
+
+private struct BrowserPairingStartRequest: Encodable {
+    let endpoint: String
+    let deviceName: String
+    let codeChallenge: String
+    let codeChallengeMethod: String
+}
+
+private struct BrowserPairingExchangeRequest: Encodable {
+    let deviceCode: String
+    let codeVerifier: String
+    let deviceName: String
+}
+
+struct AgentHealth: Decodable {
+    let status: String
+    let apiVersion: String
+    let agentVersion: String
+}
+
+struct ServerMeta: Decodable {
+    let apiVersion: String
+    let agentVersion: String
+    let instanceId: String
+    let host: String
+    let platform: String
+    let platformVersion: String?
+    let capabilities: [String]
+}
+
+struct AppSummary: Decodable, Identifiable {
+    var id: String { name }
+
+    let name: String
+    let urls: [String]
+    let running: Bool?
+    let deployed: Bool?
+    let processCount: Int?
+    let httpsActive: Bool?
+    let containerStatus: String?
+    let ports: String?
+    let domains: [String]
+
+    var primaryURL: String? { urls.first }
+}
+
+struct AppsResponse: Decodable {
+    let apps: [AppSummary]
+}
+
+struct PairingExchangeResponse: Decodable {
+    let credential: String
+    let server: PairingServer
+}
+
+struct BrowserPairingStartResponse: Decodable {
+    let pairUrl: String
+    let challenge: String
+    let deviceCode: String
+    let expiresAt: String
+    let intervalSeconds: Double
+}
+
+struct PairingServer: Decodable {
+    let apiVersion: String
+    let agentVersion: String
+    let instanceId: String
+    let host: String
+    let platform: String
+}
+
+struct NemoAPIErrorBody: Decodable {
+    let error: NemoAPIError
+}
+
+struct NemoAPIError: Decodable {
+    let code: String
+    let message: String
+    let retryable: Bool?
 }

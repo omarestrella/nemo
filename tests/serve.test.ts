@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { isTrustedPairingTrigger } from "../src/agent/commands/serve";
+import { codeChallengeS256 } from "../src/agent/pairing";
 import { AgentState } from "../src/agent/storage";
 
 const cleanupPaths: string[] = [];
@@ -193,7 +193,7 @@ test("browser pairing page approves a verifier-bound credential exchange", async
   expect(replay.status).toBe(404);
 });
 
-test("browser pairing challenge trigger ignores forwarded client headers", async () => {
+test("browser pairing challenge can start for remote clients", async () => {
   const stateDir = await makeStateDir();
   const url = await startServer(stateDir);
 
@@ -215,17 +215,6 @@ test("browser pairing challenge trigger ignores forwarded client headers", async
     intervalSeconds: 2,
     pairUrl: expect.stringContaining(`${url}/pair?challenge=`),
   });
-});
-
-test("browser pairing trust ignores spoofed forwarded headers", () => {
-  const request = new Request("http://agent.local/v1/pairing/browser/start", {
-    headers: { "x-forwarded-for": "127.0.0.1" },
-  });
-  const server = {
-    requestIP: () => ({ address: "203.0.113.10", port: 49152 }),
-  };
-
-  expect(isTrustedPairingTrigger(request, server)).toBe(false);
 });
 
 test("logs and events require dedicated read scopes", async () => {
@@ -432,11 +421,6 @@ async function exchangeCredential(
   expect(exchange.status).toBe(200);
   const body = (await exchange.json()) as { credential: string };
   return body.credential;
-}
-
-function codeChallengeS256(verifier: string): string {
-  const digest = new Bun.CryptoHasher("sha256").update(verifier).digest();
-  return Buffer.from(digest).toString("base64url");
 }
 
 async function getJson(

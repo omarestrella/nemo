@@ -1,12 +1,17 @@
 import Foundation
 
-@MainActor
-protocol AgentDiscoveryServiceDelegate: AnyObject {
-    func agentDiscoveryService(_ service: AgentDiscoveryService, didUpdate agents: [DiscoveredAgent])
+struct DiscoveredAgent: Identifiable, Equatable {
+    var id: String { endpoint.absoluteString }
+
+    let name: String
+    let host: String
+    let port: Int
+    let path: String
+    let endpoint: URL
 }
 
 final class AgentDiscoveryService: NSObject {
-    weak var delegate: AgentDiscoveryServiceDelegate?
+    var onAgentsChanged: (([DiscoveredAgent]) -> Void)?
 
     private let browser = NetServiceBrowser()
     private var services: [NetService] = []
@@ -44,8 +49,9 @@ final class AgentDiscoveryService: NSObject {
     }
 
     private func notify() {
+        let agents = agents
         Task { @MainActor in
-            delegate?.agentDiscoveryService(self, didUpdate: agents)
+            onAgentsChanged?(agents)
         }
     }
 }

@@ -6,15 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		666956A12FB8A3A7005A92A0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 666956972FB8A3A7005A92A0 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		666955E12FB6450B005A92A0 /* Nemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		666956972FB8A3A7005A92A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		666955EF2FB65070005A92A0 /* Exceptions for "Nemo" folder in "Nemo" target */ = {
+		666956882FB8A386005A92A0 /* Exceptions for "Nemo" folder in "Nemo" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
+				Support/Info.plist,
 			);
 			target = 666955E02FB6450B005A92A0 /* Nemo */;
 		};
@@ -24,7 +29,7 @@
 		666955E32FB6450B005A92A0 /* Nemo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				666955EF2FB65070005A92A0 /* Exceptions for "Nemo" folder in "Nemo" target */,
+				666956882FB8A386005A92A0 /* Exceptions for "Nemo" folder in "Nemo" target */,
 			);
 			path = Nemo;
 			sourceTree = "<group>";
@@ -47,6 +52,7 @@
 			children = (
 				666955E32FB6450B005A92A0 /* Nemo */,
 				666955E22FB6450B005A92A0 /* Products */,
+				666956972FB8A3A7005A92A0 /* Assets.xcassets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -122,6 +128,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				666956A12FB8A3A7005A92A0 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,7 +270,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Nemo/Nemo.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Nemo/Support/Nemo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -273,7 +280,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Nemo/Info.plist;
+				INFOPLIST_FILE = Nemo/Support/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -296,7 +303,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Nemo/Nemo.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Nemo/Support/Nemo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -306,7 +313,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Nemo/Info.plist;
+				INFOPLIST_FILE = Nemo/Support/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

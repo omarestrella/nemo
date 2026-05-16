@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Bindable var model: NemoAppModel
+    @Bindable var model: AgentSession
 
     var body: some View {
         Form {
@@ -79,5 +79,5 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(model: NemoAppModel())
+    SettingsView(model: AgentSession())
 }
