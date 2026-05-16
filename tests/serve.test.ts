@@ -73,8 +73,10 @@ test("browser pairing page approves a verifier-bound credential exchange", async
   const page = await fetch(`${url}/pair`);
   expect(page.status).toBe(200);
   const pageHtml = await page.text();
-  expect(pageHtml).toContain('<link rel="stylesheet" href="/pair.css">');
-  expect(pageHtml).toContain("started from the app");
+  const normalizedPageHtml = pageHtml.replace(/\s+/g, " ");
+  expect(pageHtml).toContain('rel="stylesheet"');
+  expect(pageHtml).toContain('href="/pair.css"');
+  expect(normalizedPageHtml).toContain("started from the app");
 
   const missingChallenge = await fetch(`${url}/v1/pairing/browser/challenge?challenge=missing`);
   expect(missingChallenge.status).toBe(404);

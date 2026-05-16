@@ -210,7 +210,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         intervalSeconds: Double
     ) async {
         let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
-        let deadline = ISO8601DateFormatter().date(from: expiresAt) ?? Date().addingTimeInterval(120)
+        let deadline = Self.parseServerDate(expiresAt) ?? Date().addingTimeInterval(120)
         let deviceName = Host.current().localizedName ?? "Nemo Mac"
 
         while !Task.isCancelled && Date() < deadline {
@@ -234,10 +234,18 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
                 return
             } catch TransportError.api(_, "PAIRING_AUTHORIZATION_PENDING", _) {
                 try? await Task.sleep(for: .seconds(max(1, intervalSeconds)))
+            } catch TransportError.url(let error) where error.code == .cancelled || Task.isCancelled {
+                return
             } catch let error as TransportError {
+                if Task.isCancelled {
+                    return
+                }
                 status = transportStatus(from: error)
                 return
             } catch {
+                if Task.isCancelled {
+                    return
+                }
                 status = .failed(error.localizedDescription)
                 return
             }
@@ -266,6 +274,16 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
 
     private func transportStatus(from error: TransportError) -> ConnectionStatus {
         return .failed(error.localizedDescription)
+    }
+
+    private static func parseServerDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 
     private func makeBrowserPairingVerifier() throws -> String {
