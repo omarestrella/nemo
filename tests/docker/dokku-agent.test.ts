@@ -8,7 +8,7 @@ const TEST_APP = "nemo-docker-test";
 const CONTAINER_AGENT_PATH = "/usr/local/bin/nemo-agent";
 const CONTAINER_STATE_DIR = "/var/lib/nemo-agent-test";
 const CONTAINER_AGENT_PORT = 7331;
-const CONTAINER_HELPER_PATH = "/usr/local/lib/nemo-agent/dokku-readonly";
+const CONTAINER_WRAPPER_PATH = "/usr/local/lib/nemo-agent/dokku-wrapper";
 const TEST_DHPARAM_PEM = `-----BEGIN DH PARAMETERS-----
 MIIBDAKCAQEAsXw5FQDGCBNe7405/kjr+vnA18tQNDb2NN76hKdtx4c6TGBGMHdL
 5eEqPaLuVkOta5TTSSnOlPj8w2OMFoAy0a7+nwe0cVfS/njxAMFyXKFzX2bSuyfb
@@ -151,7 +151,7 @@ describe("nemo-agent Dokku Docker integration", () => {
           CONTAINER_STATE_DIR,
           `${CONTAINER_STATE_DIR}/server-secret`,
           `${CONTAINER_STATE_DIR}/nemo-agent.db`,
-          CONTAINER_HELPER_PATH,
+          CONTAINER_WRAPPER_PATH,
           "/etc/sudoers.d/nemo-agent",
           "/etc/systemd/system/nemo-agent.service",
         ]);
@@ -172,8 +172,8 @@ describe("nemo-agent Dokku Docker integration", () => {
           "Database must be mode 600 and owned by the service user",
         );
         assert(
-          modeOutput.stdout.includes(`755 root:root ${CONTAINER_HELPER_PATH}`),
-          "Dokku read helper must be executable and root-owned",
+          modeOutput.stdout.includes(`755 root:root ${CONTAINER_WRAPPER_PATH}`),
+          "Dokku wrapper must be executable and root-owned",
         );
         assert(
           modeOutput.stdout.includes("440 root:root /etc/sudoers.d/nemo-agent"),
@@ -202,7 +202,7 @@ describe("nemo-agent Dokku Docker integration", () => {
           "systemd unit must bind to the default LAN-reachable host",
         );
         assert(!systemdUnit.stdout.includes("--dokku-bin"), "systemd unit must not pin a Dokku path");
-        assert(systemdUnit.stdout.includes(`--dokku-helper ${CONTAINER_HELPER_PATH}`), "systemd unit must use the read helper");
+        assert(systemdUnit.stdout.includes(`--dokku-wrapper ${CONTAINER_WRAPPER_PATH}`), "systemd unit must use the wrapper");
 
         const doctor = await exec(
           [
@@ -220,7 +220,7 @@ describe("nemo-agent Dokku Docker integration", () => {
         );
         assert(
           doctor.stdout.includes("PASS service Dokku sudo policy"),
-          "doctor must verify the service user can run the Dokku read helper",
+          "doctor must verify the service user can run the Dokku wrapper",
         );
         assert(
           doctor.stdout.includes("service discovery"),
@@ -411,7 +411,7 @@ async function startAgent(): Promise<void> {
     "-lc",
     [
       `rm -f /tmp/nemo-agent.log`,
-      `nohup sudo -n -u nemo-agent ${CONTAINER_AGENT_PATH} serve --state-dir ${CONTAINER_STATE_DIR} --host 0.0.0.0 --port ${CONTAINER_AGENT_PORT} --public-host ${DOKKU_HOSTNAME} --dokku-helper ${CONTAINER_HELPER_PATH} >/tmp/nemo-agent.log 2>&1 &`,
+      `nohup sudo -n -u nemo-agent ${CONTAINER_AGENT_PATH} serve --state-dir ${CONTAINER_STATE_DIR} --host 0.0.0.0 --port ${CONTAINER_AGENT_PORT} --public-host ${DOKKU_HOSTNAME} --dokku-wrapper ${CONTAINER_WRAPPER_PATH} >/tmp/nemo-agent.log 2>&1 &`,
     ].join(" && "),
   ]);
 }

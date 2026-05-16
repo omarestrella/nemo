@@ -1,7 +1,7 @@
 import { chmod, chown, mkdir, rm, stat } from "node:fs/promises";
 
 import avahiServiceTemplate from "../../assets/install/nemo-agent.avahi.service" with { type: "text" };
-import dokkuReadonlyHelperTemplate from "../../assets/install/dokku-readonly.sh" with { type: "text" };
+import dokkuWrapperContents from "../../assets/install/dokku-wrapper.sh" with { type: "text" };
 import sudoersTemplate from "../../assets/install/nemo-agent.sudoers" with { type: "text" };
 import systemdUnitTemplate from "../../assets/install/nemo-agent.service" with { type: "text" };
 import { AGENT_VERSION } from "./types";
@@ -9,8 +9,9 @@ export const DEFAULT_CONFIG_DIR = "/etc/nemo-agent";
 export const INSTALLED_BINARY_PATH = "/usr/local/bin/nemo-agent";
 export const SERVICE_USER = "nemo-agent";
 export const SERVICE_GROUP = "nemo-agent";
-export const HELPER_DIR = "/usr/local/lib/nemo-agent";
-export const DOKKU_READONLY_HELPER_PATH = `${HELPER_DIR}/dokku-readonly`;
+export const WRAPPER_DIR = "/usr/local/lib/nemo-agent";
+export const DOKKU_WRAPPER_PATH = `${WRAPPER_DIR}/dokku-wrapper`;
+export const DOKKU_WRAPPER_CONTENTS = dokkuWrapperContents;
 export const SUDOERS_PATH = "/etc/sudoers.d/nemo-agent";
 export const SYSTEMD_UNIT_PATH = "/etc/systemd/system/nemo-agent.service";
 export const AVAHI_SERVICE_PATH = "/etc/avahi/services/nemo-agent.service";
@@ -55,8 +56,8 @@ export async function ensureHostInstall(paths: InstallPaths): Promise<InstallRes
   const service = await serviceOwner();
   await ensureDirectory(paths.configDir, 0o750, root, result);
   await ensureDirectory(paths.stateDir, 0o700, service, result);
-  await ensureDirectory(HELPER_DIR, 0o755, root, result);
-  await installFile(DOKKU_READONLY_HELPER_PATH, renderDokkuReadonlyHelper(), 0o755, root, result);
+  await ensureDirectory(WRAPPER_DIR, 0o755, root, result);
+  await installFile(DOKKU_WRAPPER_PATH, DOKKU_WRAPPER_CONTENTS, 0o755, root, result);
   await installFile(SUDOERS_PATH, renderSudoers(), 0o440, root, result);
   await installFile(SYSTEMD_UNIT_PATH, renderSystemdUnit(paths), 0o644, root, result);
   await installAvahiService(paths, root, result);
@@ -78,7 +79,7 @@ export async function ensureAgentStateOwnership(paths: { stateDir: string; datab
 
 export function renderSystemdUnit(paths: InstallPaths): string {
   return renderTemplate(systemdUnitTemplate, {
-    DOKKU_READONLY_HELPER_PATH,
+    DOKKU_WRAPPER_PATH,
     HOST: paths.host,
     INSTALLED_BINARY_PATH,
     PORT: String(paths.port),
@@ -94,13 +95,9 @@ export function renderAvahiService(paths: InstallPaths): string {
   });
 }
 
-export function renderDokkuReadonlyHelper(): string {
-  return dokkuReadonlyHelperTemplate;
-}
-
 export function renderSudoers(): string {
   return renderTemplate(sudoersTemplate, {
-    DOKKU_READONLY_HELPER_PATH,
+    DOKKU_WRAPPER_PATH,
     SERVICE_USER,
   });
 }
@@ -277,12 +274,12 @@ getent group ${SERVICE_GROUP} >/dev/null || groupadd --system ${SERVICE_GROUP}
 id -u ${SERVICE_USER} >/dev/null 2>&1 || useradd --system --gid ${SERVICE_GROUP} --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home ${SERVICE_USER}
 install -d -m 0750 ${paths.configDir}
 install -d -m 0700 ${paths.stateDir}
-install -d -m 0755 ${HELPER_DIR}
-chown root:root ${paths.configDir} ${HELPER_DIR}
+install -d -m 0755 ${WRAPPER_DIR}
+chown root:root ${paths.configDir} ${WRAPPER_DIR}
 chown ${SERVICE_USER}:${SERVICE_GROUP} ${paths.stateDir}
 
-# ${DOKKU_READONLY_HELPER_PATH}
-${renderDokkuReadonlyHelper()}
+# ${DOKKU_WRAPPER_PATH}
+${DOKKU_WRAPPER_CONTENTS}
 
 # ${SUDOERS_PATH}
 ${renderSudoers()}

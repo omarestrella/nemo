@@ -31,10 +31,10 @@ sudo nemo-agent doctor --state-dir /var/lib/nemo-agent
 ```
 
 `nemo-agent init` creates a restrictive state directory, a dedicated
-`nemo-agent` service user, a root-owned Dokku read helper, a narrow sudoers
-policy for that helper, and a systemd unit that binds the service to
+`nemo-agent` service user, a root-owned Dokku wrapper, a narrow sudoers
+policy for that wrapper, and a systemd unit that binds the service to
 `0.0.0.0:7331`. The long-running HTTP agent runs as `nemo-agent`, not root.
-Dokku command execution goes through the helper and is limited to the read-only
+Dokku command execution goes through the wrapper and is limited to the read-only
 commands needed by the API.
 
 Root is required to install or repair those host artifacts, but it is not the
