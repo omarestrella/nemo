@@ -1,9 +1,12 @@
+import type { Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 
 import { SERVICE_USER, fileContains } from "../install";
-import { inspectPathMode } from "../storage";
 import { firstLine, run } from "./process";
 import type { Check } from "./types";
+
+type OwnerDetail = { user: string; group: string };
+type PathInspection = { mode: number; owner: OwnerDetail };
 
 export async function modeOwnerCheck(
   name: string,
@@ -12,16 +15,22 @@ export async function modeOwnerCheck(
   expectedUser: string,
   expectedGroup: string,
 ): Promise<Check> {
-  if (!(await pathExists(path))) {
+  const inspection = await inspectPath(path);
+  if (!inspection) {
     return { name, status: "FAIL", detail: "missing" };
   }
-  const mode = await inspectPathMode(path);
-  const owner = await ownerDetail(path);
-  const ownerOk = owner.user === expectedUser && owner.group === expectedGroup;
+  const ownerOk =
+    inspection.owner.user === expectedUser &&
+    inspection.owner.group === expectedGroup;
   return {
     name,
-    status: mode === expectedMode && ownerOk ? "PASS" : "FAIL",
-    detail: `mode ${mode?.toString(8)} expected ${expectedMode.toString(8)}; owner ${owner.user}:${owner.group} expected ${expectedUser}:${expectedGroup}`,
+    status: inspection.mode === expectedMode && ownerOk ? "PASS" : "FAIL",
+    detail: modeOwnerDetail(
+      inspection,
+      expectedMode,
+      expectedUser,
+      expectedGroup,
+    ),
   };
 }
 
@@ -31,10 +40,11 @@ export async function pathCheck(
   executableBits: number,
   warnOnly: boolean,
 ): Promise<Check> {
-  if (!(await pathExists(path))) {
+  const info = await statPath(path);
+  if (!info) {
     return { name, status: warnOnly ? "WARN" : "FAIL", detail: "missing" };
   }
-  const mode = (await inspectPathMode(path)) ?? 0;
+  const mode = info.mode & 0o777;
   return {
     name,
     status: (mode & executableBits) !== 0 ? "PASS" : warnOnly ? "WARN" : "FAIL",
@@ -50,21 +60,30 @@ export async function fileCheck(
   expectedUser: string,
   expectedGroup: string,
 ): Promise<Check> {
-  if (!(await pathExists(path))) {
+  const inspection = await inspectPath(path);
+  if (!inspection) {
     return {
       name,
       status: "WARN",
       detail: "missing; run sudo nemo-agent doctor --fix",
     };
   }
-  const mode = await inspectPathMode(path);
-  const owner = await ownerDetail(path);
-  const ownerOk = owner.user === expectedUser && owner.group === expectedGroup;
+  const ownerOk =
+    inspection.owner.user === expectedUser &&
+    inspection.owner.group === expectedGroup;
   const contentsOk = await fileContains(path, expectedContents);
   return {
     name,
-    status: mode === expectedMode && ownerOk && contentsOk ? "PASS" : "WARN",
-    detail: `mode ${mode?.toString(8)} expected ${expectedMode.toString(8)}; owner ${owner.user}:${owner.group} expected ${expectedUser}:${expectedGroup}; ${contentsOk ? "contents current" : "contents differ"}`,
+    status:
+      inspection.mode === expectedMode && ownerOk && contentsOk
+        ? "PASS"
+        : "WARN",
+    detail: `${modeOwnerDetail(
+      inspection,
+      expectedMode,
+      expectedUser,
+      expectedGroup,
+    )}; ${contentsOk ? "contents current" : "contents differ"}`,
   };
 }
 
@@ -91,7 +110,7 @@ export async function serviceUserReadCheck(
   name: string,
   path: string,
 ): Promise<Check> {
-  if (!(await pathExists(path))) {
+  if (!(await statPath(path))) {
     return { name, status: "FAIL", detail: "missing" };
   }
   if (
@@ -132,10 +151,9 @@ export async function serviceUserReadCheck(
   }
 }
 
-export async function pathExists(path: string): Promise<boolean> {
+async function statPath(path: string): Promise<Stats | null> {
   try {
-    await stat(path);
-    return true;
+    return await stat(path);
   } catch (error) {
     if (
       error &&
@@ -143,21 +161,37 @@ export async function pathExists(path: string): Promise<boolean> {
       "code" in error &&
       error.code === "ENOENT"
     ) {
-      return false;
+      return null;
     }
     throw error;
   }
 }
 
-async function ownerDetail(
-  path: string,
-): Promise<{ user: string; group: string }> {
-  const info = await stat(path);
+async function inspectPath(path: string): Promise<PathInspection | null> {
+  const info = await statPath(path);
+  if (!info) {
+    return null;
+  }
   const [user, group] = await Promise.all([
     nameForId("getent", "passwd", info.uid),
     nameForId("getent", "group", info.gid),
   ]);
-  return { user: user ?? String(info.uid), group: group ?? String(info.gid) };
+  return {
+    mode: info.mode & 0o777,
+    owner: {
+      user: user ?? String(info.uid),
+      group: group ?? String(info.gid),
+    },
+  };
+}
+
+function modeOwnerDetail(
+  inspection: PathInspection,
+  expectedMode: number,
+  expectedUser: string,
+  expectedGroup: string,
+): string {
+  return `mode ${inspection.mode.toString(8)} expected ${expectedMode.toString(8)}; owner ${inspection.owner.user}:${inspection.owner.group} expected ${expectedUser}:${expectedGroup}`;
 }
 
 async function nameForId(

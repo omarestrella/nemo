@@ -1,0 +1,23 @@
+[Unit]
+Description=Nemo agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+Group={{SERVICE_GROUP}}
+ExecStart={{INSTALLED_BINARY_PATH}} serve --state-dir {{STATE_DIR}} --host {{HOST}} --port {{PORT}} --dokku-helper {{DOKKU_READONLY_HELPER_PATH}}
+Restart=on-failure
+RestartSec=2
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths={{STATE_DIR}}
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

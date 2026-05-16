@@ -1,9 +1,9 @@
 import { hostname } from "node:os";
 
-import logoPath from "../web/nemo-app-icon.png" with { type: "file" };
-import pairCssPath from "../web/pair.css" with { type: "file" };
-import pairHtmlPath from "../web/pair.html" with { type: "file" };
-import pairJsPath from "../web/pair.js" with { type: "file" };
+import logoPath from "../../../assets/web/nemo-app-icon.png" with { type: "file" };
+import pairCssPath from "../../../assets/web/pair.css" with { type: "file" };
+import pairHtmlPath from "../../../assets/web/pair.html" with { type: "file" };
+import pairJsPath from "../../../assets/web/pair.js" with { type: "file" };
 import {
   DokkuCommandRunner,
   DokkuAdapter,

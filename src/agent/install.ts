@@ -1,5 +1,9 @@
 import { chmod, chown, mkdir, rm, stat } from "node:fs/promises";
 
+import avahiServiceTemplate from "../../assets/install/nemo-agent.avahi.service" with { type: "text" };
+import dokkuReadonlyHelperTemplate from "../../assets/install/dokku-readonly.sh" with { type: "text" };
+import sudoersTemplate from "../../assets/install/nemo-agent.sudoers" with { type: "text" };
+import systemdUnitTemplate from "../../assets/install/nemo-agent.service" with { type: "text" };
 import { AGENT_VERSION } from "./types";
 export const DEFAULT_CONFIG_DIR = "/etc/nemo-agent";
 export const INSTALLED_BINARY_PATH = "/usr/local/bin/nemo-agent";
@@ -73,124 +77,44 @@ export async function ensureAgentStateOwnership(paths: { stateDir: string; datab
 }
 
 export function renderSystemdUnit(paths: InstallPaths): string {
-  return `[Unit]
-Description=Nemo agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${SERVICE_USER}
-Group=${SERVICE_GROUP}
-ExecStart=${INSTALLED_BINARY_PATH} serve --state-dir ${paths.stateDir} --host ${paths.host} --port ${paths.port} --dokku-helper ${DOKKU_READONLY_HELPER_PATH}
-Restart=on-failure
-RestartSec=2
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=${paths.stateDir}
-LockPersonality=true
-MemoryDenyWriteExecute=true
-RestrictRealtime=true
-SystemCallArchitectures=native
-
-[Install]
-WantedBy=multi-user.target
-`;
+  return renderTemplate(systemdUnitTemplate, {
+    DOKKU_READONLY_HELPER_PATH,
+    HOST: paths.host,
+    INSTALLED_BINARY_PATH,
+    PORT: String(paths.port),
+    SERVICE_GROUP,
+    SERVICE_USER,
+    STATE_DIR: paths.stateDir,
+  });
 }
 
 export function renderAvahiService(paths: InstallPaths): string {
-  return `<?xml version="1.0" standalone='no'?>
-<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-<service-group>
-  <name replace-wildcards="yes">Nemo on %h</name>
-  <service>
-    <type>_nemo-agent._tcp</type>
-    <port>${paths.port}</port>
-    <txt-record>apiVersion=1</txt-record>
-    <txt-record>path=/</txt-record>
-  </service>
-</service-group>
-`;
+  return renderTemplate(avahiServiceTemplate, {
+    PORT: String(paths.port),
+  });
 }
 
 export function renderDokkuReadonlyHelper(): string {
-  return `#!/bin/sh
-set -eu
-
-app_pattern='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
-
-is_app() {
-  printf '%s\\n' "$1" | grep -Eq "$app_pattern"
-}
-
-is_limit() {
-  case "$1" in
-    ''|*[!0-9]*)
-      return 1
-      ;;
-  esac
-  [ "$1" -ge 1 ] && [ "$1" -le 500 ]
-}
-
-allowed=0
-case "$#" in
-  1)
-    if [ "$1" = "version" ] || [ "$1" = "events" ]; then
-      allowed=1
-    fi
-    ;;
-  2)
-    if [ "$1" = "--quiet" ] && [ "$2" = "apps:list" ]; then
-      allowed=1
-    elif [ "$1" = "urls" ] && is_app "$2"; then
-      allowed=1
-    elif [ "$1" = "letsencrypt:active" ] && is_app "$2"; then
-      allowed=1
-    fi
-    ;;
-  3)
-    if [ "$1" = "ps:report" ] && is_app "$2" && { [ "$3" = "--running" ] || [ "$3" = "--deployed" ] || [ "$3" = "--status" ]; }; then
-      allowed=1
-    elif [ "$1" = "ports:report" ] && is_app "$2" && [ "$3" = "--ports-map" ]; then
-      allowed=1
-    elif [ "$1" = "domains:report" ] && is_app "$2" && [ "$3" = "--domains-app-vhosts" ]; then
-      allowed=1
-    fi
-    ;;
-  4)
-    if [ "$1" = "logs" ] && is_app "$2" && [ "$3" = "--num" ] && is_limit "$4"; then
-      allowed=1
-    fi
-    ;;
-esac
-
-if [ "$allowed" -ne 1 ]; then
-  echo "nemo-agent: Dokku command is not allowlisted" >&2
-  exit 64
-fi
-
-if command -v dokku >/dev/null 2>&1; then
-  exec dokku "$@"
-fi
-
-if [ -x /usr/bin/dokku ]; then
-  exec /usr/bin/dokku "$@"
-fi
-
-if [ -x /usr/local/bin/dokku ]; then
-  exec /usr/local/bin/dokku "$@"
-fi
-
-echo "nemo-agent: dokku binary not found" >&2
-exit 127
-`;
+  return dokkuReadonlyHelperTemplate;
 }
 
 export function renderSudoers(): string {
-  return `Defaults:${SERVICE_USER} !requiretty
-${SERVICE_USER} ALL=(root) NOPASSWD: ${DOKKU_READONLY_HELPER_PATH} *
-`;
+  return renderTemplate(sudoersTemplate, {
+    DOKKU_READONLY_HELPER_PATH,
+    SERVICE_USER,
+  });
+}
+
+function renderTemplate(template: string, values: Record<string, string>): string {
+  let rendered = template;
+  for (const [key, value] of Object.entries(values)) {
+    rendered = rendered.replaceAll(`{{${key}}}`, value);
+  }
+  const unresolved = rendered.match(/{{[A-Z0-9_]+}}/);
+  if (unresolved) {
+    throw new Error(`Missing install template value for ${unresolved[0]}`);
+  }
+  return rendered;
 }
 
 export async function fileContains(path: string, text: string): Promise<boolean> {
@@ -240,7 +164,7 @@ async function installAvahiService(paths: InstallPaths, owner: Owner, result: In
   await installFile(AVAHI_SERVICE_PATH, renderAvahiService(paths), 0o644, owner, result);
 }
 
-function isLoopbackHost(host: string): boolean {
+export function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 

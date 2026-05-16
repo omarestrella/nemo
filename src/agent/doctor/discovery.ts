@@ -1,10 +1,10 @@
 import {
   AVAHI_SERVICE_PATH,
+  isLoopbackHost,
   renderAvahiService,
   type InstallPaths,
 } from "../install";
 import { fileCheck } from "./files";
-import { isLoopbackHost } from "./hosts";
 import { firstLine, run } from "./process";
 import type { Check } from "./types";
 
