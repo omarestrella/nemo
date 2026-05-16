@@ -68,6 +68,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       scope: { type: "string" },
       "state-dir": { type: "string" },
       ttl: { type: "string" },
+      verbose: { type: "boolean" },
     },
   });
 

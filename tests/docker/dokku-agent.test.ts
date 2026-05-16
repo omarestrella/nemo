@@ -208,6 +208,7 @@ describe("nemo-agent Dokku Docker integration", () => {
           [
             CONTAINER_AGENT_PATH,
             "doctor",
+            "--verbose",
             "--state-dir",
             CONTAINER_STATE_DIR,
           ],

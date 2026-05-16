@@ -41,6 +41,9 @@ Root is required to install or repair those host artifacts, but it is not the
 agent runtime identity. If you run `init` without root privileges, it prints the
 shell commands needed to install the artifacts.
 
+`doctor` prints a compact progress display and summarizes only warnings or
+failures by default. Use `--verbose` when you want the full pass/warn/fail list.
+
 ## Pair A Client
 
 Start a short-lived pairing session on the Dokku host. Use the endpoint URL that
