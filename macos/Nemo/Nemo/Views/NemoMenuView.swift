@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct NemoMenuView: View {
-    @Bindable var model: NemoAppModel
+    @Bindable var model: AgentSession
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -200,5 +200,5 @@ private struct AppRow: View {
 }
 
 #Preview {
-    NemoMenuView(model: NemoAppModel())
+    NemoMenuView(model: AgentSession())
 }

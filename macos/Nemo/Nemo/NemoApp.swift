@@ -11,31 +11,25 @@ import SwiftUI
 @main
 struct NemoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var appModel: NemoAppModel
+    @State private var agentSession: AgentSession
 
     init() {
-        let model = NemoAppModel()
-        _appModel = State(initialValue: model)
-        NemoAppModel.shared = model
+        let model = AgentSession()
+        _agentSession = State(initialValue: model)
         AppDelegate.model = model
         AppDelegate.openURLHandler = { url in
             Task { @MainActor in
-                if let model = NemoAppModel.shared {
-                    await model.handleSetupURL(url)
-                } else {
-                    AppDelegate.pendingURLs.append(url)
-                }
+                await model.handleSetupURL(url)
             }
         }
         Task { @MainActor in
             await model.start()
-            await AppDelegate.flushPendingURLs(with: model)
         }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            NemoMenuView(model: appModel)
+            NemoMenuView(model: agentSession)
                 .frame(width: 380)
         } label: {
             Image("MenuBarIcon")
@@ -45,7 +39,7 @@ struct NemoApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: appModel)
+            SettingsView(model: agentSession)
                 .frame(width: 520)
         }
     }
@@ -53,8 +47,7 @@ struct NemoApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var openURLHandler: ((URL) -> Void)?
-    static weak var model: NemoAppModel?
-    @MainActor static var pendingURLs: [URL] = []
+    static weak var model: AgentSession?
     #if DEBUG
     private var debugWindow: NSWindow?
     #endif
@@ -80,14 +73,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         debugWindow = window
         #endif
-    }
-
-    @MainActor
-    static func flushPendingURLs(with model: NemoAppModel) async {
-        let urls = pendingURLs
-        pendingURLs.removeAll()
-        for url in urls {
-            await model.handleSetupURL(url)
-        }
     }
 }

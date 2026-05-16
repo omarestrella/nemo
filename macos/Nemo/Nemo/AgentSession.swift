@@ -4,10 +4,49 @@ import CryptoKit
 import Security
 import SwiftUI
 
-@Observable
-final class NemoAppModel: AgentDiscoveryServiceDelegate {
-    static weak var shared: NemoAppModel?
+enum AuthMethod: String, CaseIterable, Identifiable, Codable {
+    case pairing = "Pairing Code"
 
+    var id: String { rawValue }
+}
+
+struct NemoProfile: Codable, Equatable {
+    var displayName: String
+    var endpointURL: String
+    var authMethod: AuthMethod
+    var refreshIntervalSeconds: Double
+
+    static let `default` = NemoProfile(
+        displayName: "Nemo",
+        endpointURL: "http://127.0.0.1:7331",
+        authMethod: .pairing,
+        refreshIntervalSeconds: 30
+    )
+}
+
+enum ConnectionStatus: Equatable {
+    case idle
+    case loading
+    case ready
+    case blocked(String)
+    case failed(String)
+
+    var message: String {
+        switch self {
+        case .idle:
+            "Not refreshed yet"
+        case .loading:
+            "Refreshing"
+        case .ready:
+            "Connected"
+        case .blocked(let message), .failed(let message):
+            message
+        }
+    }
+}
+
+@Observable
+final class AgentSession {
     var profile: NemoProfile {
         didSet { saveProfile() }
     }
@@ -30,7 +69,9 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         self.profile = Self.loadProfile()
         self.manualPairingEndpoint = profile.endpointURL
         self.credential = try? keychain.credential(account: Self.credentialAccount)
-        self.discoveryService.delegate = self
+        self.discoveryService.onAgentsChanged = { [weak self] agents in
+            self?.discoveredAgents = agents
+        }
     }
 
     var menuBarSymbol: String {
@@ -67,7 +108,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         }
 
         status = .loading
-        let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: credential))
+        let client = NemoClient(endpoint: endpoint, credential: credential)
         do {
             let health = try await client.health()
             guard health.apiVersion == "1" else {
@@ -106,7 +147,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         }
 
         status = .loading
-        let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
+        let client = NemoClient(endpoint: endpoint, credential: nil)
         do {
             let verifier = try makeBrowserPairingVerifier()
             let response = try await client.startBrowserPairing(
@@ -162,10 +203,6 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         manualPairingEndpoint = agent.endpoint.absoluteString
     }
 
-    func agentDiscoveryService(_ service: AgentDiscoveryService, didUpdate agents: [DiscoveredAgent]) {
-        discoveredAgents = agents
-    }
-
     private func pair(endpointText: String, id: String, code: String) async {
         guard let endpoint = normalizedEndpoint(from: endpointText) else {
             status = .failed("Enter a valid endpoint URL.")
@@ -179,7 +216,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         }
 
         status = .loading
-        let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
+        let client = NemoClient(endpoint: endpoint, credential: nil)
         do {
             let response = try await client.exchangePairing(id: cleanId, code: cleanCode, deviceName: Host.current().localizedName ?? "Nemo Mac")
             guard response.server.apiVersion == "1" else {
@@ -209,7 +246,7 @@ final class NemoAppModel: AgentDiscoveryServiceDelegate {
         expiresAt: String,
         intervalSeconds: Double
     ) async {
-        let client = NemoClient(transport: HTTPJSONTransport(endpoint: endpoint, credential: nil))
+        let client = NemoClient(endpoint: endpoint, credential: nil)
         let deadline = Self.parseServerDate(expiresAt) ?? Date().addingTimeInterval(120)
         let deviceName = Host.current().localizedName ?? "Nemo Mac"
 
