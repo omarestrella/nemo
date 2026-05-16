@@ -27,8 +27,8 @@ bun src/index.ts serve --state-dir .nemo-agent
 
 Exposure and installation notes are in
 [docs/exposure-and-packaging.md](docs/exposure-and-packaging.md). The supported
-remote shapes are a narrow HTTPS reverse-proxy route, Tailscale Serve, or a
-user-managed SSH tunnel to the default localhost listener.
+remote shapes are Bonjour-discovered LAN access for trusted local networks, a
+narrow HTTPS reverse-proxy route, Tailscale Serve, or a user-managed SSH tunnel.
 
 Run tests and compile Linux binaries:
 
@@ -45,6 +45,6 @@ pairing plus the live HTTP API against real Dokku commands. Use
 `bun run test:docker` to run only that test. It requires Docker and may take
 several minutes the first time it pulls the Dokku image.
 
-The agent binds to `127.0.0.1` by default and exposes `/v1/health`,
+The agent binds to `0.0.0.0` by default and exposes `/v1/health`,
 `/v1/meta`, `/v1/platform/version`, `/v1/apps`, and `/v1/apps/{app}`.
 Authenticated clients can also call `/v1/apps/{app}/logs` and `/v1/events`.

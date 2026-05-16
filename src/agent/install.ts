@@ -4,6 +4,7 @@ import { AGENT_VERSION } from "./types";
 export const DEFAULT_CONFIG_DIR = "/etc/nemo-agent";
 export const INSTALLED_BINARY_PATH = "/usr/local/bin/nemo-agent";
 export const SYSTEMD_UNIT_PATH = "/etc/systemd/system/nemo-agent.service";
+export const AVAHI_SERVICE_PATH = "/etc/avahi/services/nemo-agent.service";
 
 export interface InstallPaths {
   configDir: string;
@@ -26,7 +27,7 @@ export function defaultInstallPaths(options: Partial<InstallPaths> & { stateDir:
   return {
     configDir: options.configDir ?? DEFAULT_CONFIG_DIR,
     stateDir: options.stateDir,
-    host: options.host ?? "127.0.0.1",
+    host: options.host ?? "0.0.0.0",
     port: options.port ?? 7331,
   };
 }
@@ -44,6 +45,7 @@ export async function ensureHostInstall(paths: InstallPaths): Promise<InstallRes
   await ensureDirectory(paths.configDir, 0o750, root, result);
   await ensureDirectory(paths.stateDir, 0o700, root, result);
   await installFile(SYSTEMD_UNIT_PATH, renderSystemdUnit(paths), 0o644, root, result);
+  await installAvahiService(paths, root, result);
   await removeLegacyFile("/etc/sudoers.d/nemo-agent", result);
   await removeLegacyFile("/usr/local/lib/nemo-agent/dokku-readonly", result);
 
@@ -86,6 +88,21 @@ WantedBy=multi-user.target
 `;
 }
 
+export function renderAvahiService(paths: InstallPaths): string {
+  return `<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Nemo on %h</name>
+  <service>
+    <type>_nemo-agent._tcp</type>
+    <port>${paths.port}</port>
+    <txt-record>apiVersion=1</txt-record>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>
+`;
+}
+
 export async function fileContains(path: string, text: string): Promise<boolean> {
   return (await Bun.file(path).exists()) && (await Bun.file(path).text()) === text;
 }
@@ -117,6 +134,24 @@ async function removeLegacyFile(path: string, result: InstallResult): Promise<vo
     await rm(path, { force: true });
     result.changed.push(`removed legacy ${path}`);
   }
+}
+
+async function installAvahiService(paths: InstallPaths, owner: Owner, result: InstallResult): Promise<void> {
+  if (isLoopbackHost(paths.host)) {
+    await removeLegacyFile(AVAHI_SERVICE_PATH, result);
+    return;
+  }
+  const avahiServiceDir = "/etc/avahi/services";
+  const info = await statPath(avahiServiceDir);
+  if (!info?.isDirectory()) {
+    result.printed.push(`Skipped Bonjour advertisement because ${avahiServiceDir} does not exist.`);
+    return;
+  }
+  await installFile(AVAHI_SERVICE_PATH, renderAvahiService(paths), 0o644, owner, result);
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 async function ensureModeOwner(path: string, mode: number, owner: Owner, result: InstallResult): Promise<void> {
@@ -152,6 +187,9 @@ chown root:root ${paths.configDir} ${paths.stateDir}
 
 # ${SYSTEMD_UNIT_PATH}
 ${renderSystemdUnit(paths)}
+
+${isLoopbackHost(paths.host) ? "# Bonjour advertisement skipped for loopback-only listener." : `# ${AVAHI_SERVICE_PATH}
+${renderAvahiService(paths)}`}
 
 nemo-agent ${AGENT_VERSION}
 `;

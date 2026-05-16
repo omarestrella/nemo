@@ -14,7 +14,6 @@ client for the sidecar API.
   - Display name.
   - Endpoint URL.
   - Auth method.
-  - TLS policy.
   - Refresh interval.
   - Pinned/hidden apps later if needed.
 - Implement setup URI and manual pairing:
@@ -43,4 +42,4 @@ client for the sidecar API.
 - A fresh app can pair with a running sidecar.
 - Relaunching the app uses the Keychain credential.
 - The menu bar popover shows reachability and app status from the live API.
-- Non-loopback plain HTTP is rejected or clearly blocked by policy.
+- Trusted LAN and loopback HTTP endpoints can be used for discovery and pairing.

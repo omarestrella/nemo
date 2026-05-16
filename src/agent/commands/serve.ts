@@ -1,5 +1,9 @@
 import { hostname } from "node:os";
 
+import logoPath from "../web/nemo-app-icon.png" with { type: "file" };
+import pairCssPath from "../web/pair.css" with { type: "file" };
+import pairHtmlPath from "../web/pair.html" with { type: "file" };
+import pairJsPath from "../web/pair.js" with { type: "file" };
 import {
   DokkuCommandRunner,
   DokkuAdapter,
@@ -10,7 +14,19 @@ import { NemoError } from "../errors";
 import { auth, errors, handler } from "../http";
 import { AgentState } from "../storage";
 import { AGENT_VERSION, API_VERSION } from "../types";
+import { randomHex } from "../crypto";
 import { flagInt, flagString, stateDir, type ParsedArgs } from "./args";
+
+interface BrowserPairingChallenge {
+  token: string;
+  endpoint: string;
+  deviceName: string;
+  createdAt: string;
+  expiresAt: string;
+  consumed: boolean;
+}
+
+const BROWSER_PAIRING_TTL_SECONDS = 120;
 
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
@@ -21,14 +37,37 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
     concurrency: flagInt(parsed, "command-concurrency") ?? 4,
   });
   const dokku = new DokkuAdapter(runner);
-  const bindHost = flagString(parsed, "host") ?? "127.0.0.1";
+  const bindHost = flagString(parsed, "host") ?? "0.0.0.0";
   const port = flagInt(parsed, "port") ?? 7331;
   const publicHost = flagString(parsed, "public-host") ?? hostname();
+  const browserPairingChallenges = new Map<string, BrowserPairingChallenge>();
 
-  const server = Bun.serve({
+  let server: ReturnType<typeof Bun.serve>;
+  server = Bun.serve({
     hostname: bindHost,
     port,
     routes: {
+      "/pair": {
+        GET: () => staticFileResponse(pairHtmlPath, "text/html; charset=utf-8"),
+      },
+      "/pair.css": {
+        GET: () => staticFileResponse(pairCssPath, "text/css; charset=utf-8"),
+      },
+      "/pair.js": {
+        GET: () => staticFileResponse(pairJsPath, "text/javascript; charset=utf-8"),
+      },
+      "/assets/nemo-mark.png": {
+        GET: () => staticFileResponse(logoPath, "image/png"),
+      },
+      "/v1/pairing/browser/start": {
+        POST: handler(errors, async (request) => startBrowserPairing(request, browserPairingChallenges, server)),
+      },
+      "/v1/pairing/browser/challenge": {
+        GET: handler(errors, async (request) => getBrowserPairingChallenge(request, browserPairingChallenges)),
+      },
+      "/v1/pairing/browser/complete": {
+        POST: handler(errors, async (request) => completeBrowserPairing(request, state, browserPairingChallenges)),
+      },
       "/v1/health": {
         GET: () =>
           Response.json({
@@ -112,6 +151,218 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   console.log(
     `nemo-agent ${AGENT_VERSION} listening on http://${server.hostname}:${server.port}`,
   );
+}
+
+function staticFileResponse(path: string, contentType: string): Response {
+  return new Response(Bun.file(path), {
+    headers: {
+      "content-type": contentType,
+      "cache-control": "no-store",
+    },
+  });
+}
+
+async function startBrowserPairing(
+  request: Request,
+  challenges: Map<string, BrowserPairingChallenge>,
+  server: ReturnType<typeof Bun.serve>,
+): Promise<Response> {
+  if (!isTrustedPairingTrigger(request, server)) {
+    throw new NemoError(
+      "PAIRING_TRIGGER_FORBIDDEN",
+      "Browser pairing must be started from a loopback or trusted LAN client.",
+      { status: 403 },
+    );
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    // Body is optional so older callers can still trigger a browser challenge.
+  }
+
+  const endpoint = safeEndpoint(String(body.endpoint ?? ""), request);
+  const deviceName = String(body.deviceName ?? "").trim() || "Nemo Mac";
+  const challenge = createBrowserPairingChallenge(endpoint, deviceName);
+  challenges.set(challenge.token, challenge);
+  pruneBrowserPairingChallenges(challenges);
+
+  const pairUrl = new URL("/pair", endpoint);
+  pairUrl.searchParams.set("challenge", challenge.token);
+  return Response.json({
+    pairUrl: pairUrl.toString(),
+    challenge: challenge.token,
+    expiresAt: challenge.expiresAt,
+  });
+}
+
+function getBrowserPairingChallenge(
+  request: Request,
+  challenges: Map<string, BrowserPairingChallenge>,
+): Response {
+  pruneBrowserPairingChallenges(challenges);
+  const challenge = challengeFromRequest(request, challenges);
+  if (!challenge) {
+    throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
+      status: 404,
+    });
+  }
+  return Response.json({
+    endpoint: challenge.endpoint,
+    deviceName: challenge.deviceName,
+    expiresAt: challenge.expiresAt,
+  });
+}
+
+async function completeBrowserPairing(
+  request: Request,
+  state: AgentState,
+  challenges: Map<string, BrowserPairingChallenge>,
+): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    throw new NemoError("BAD_REQUEST", "Invalid JSON body", { status: 400 });
+  }
+
+  const challengeToken = String(body.challenge ?? "");
+  const challenge = consumeBrowserPairingChallenge(challenges, challengeToken);
+  if (!challenge) {
+    throw new NemoError("PAIRING_CHALLENGE_NOT_FOUND", "Pairing challenge not found", {
+      status: 404,
+    });
+  }
+
+  if (body.decision !== "approve") {
+    return Response.json({ status: "denied" });
+  }
+
+  const deviceName = String(body.deviceName ?? "").trim() || challenge.deviceName || "Nemo Mac";
+  const session = await state.createPairingSession({
+    expectedDeviceName: deviceName,
+    scope: "read",
+    ttlSeconds: 600,
+    maxAttempts: 5,
+  });
+  const setupUri = new URL("nemo://pair");
+  setupUri.searchParams.set("endpoint", challenge.endpoint);
+  setupUri.searchParams.set("id", session.id);
+  setupUri.searchParams.set("code", session.code);
+
+  return Response.json({
+    status: "approved",
+    setupUri: setupUri.toString(),
+    id: session.id,
+    code: session.code,
+    expiresAt: session.expiresAt,
+  });
+}
+
+function isTrustedPairingTrigger(request: Request, server: ReturnType<typeof Bun.serve>): boolean {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const address = forwarded || server.requestIP(request)?.address || "";
+  return isTrustedPairingAddress(address);
+}
+
+function isTrustedPairingAddress(address: string): boolean {
+  const normalized = address.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.") ||
+    normalized.startsWith("10.") ||
+    normalized.startsWith("192.168.") ||
+    normalized.startsWith("169.254.") ||
+    normalized.startsWith("fe80:")
+  ) {
+    return true;
+  }
+  if (normalized.startsWith("::ffff:")) {
+    return isTrustedPairingAddress(normalized.slice("::ffff:".length));
+  }
+  const parts = normalized.split(".");
+  if (parts.length === 4 && parts[0] === "172") {
+    const second = Number(parts[1]);
+    return Number.isInteger(second) && second >= 16 && second <= 31;
+  }
+  return false;
+}
+
+function createBrowserPairingChallenge(endpoint: string, deviceName: string): BrowserPairingChallenge {
+  const now = new Date();
+  return {
+    token: randomHex(32),
+    endpoint,
+    deviceName,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + BROWSER_PAIRING_TTL_SECONDS * 1000).toISOString(),
+    consumed: false,
+  };
+}
+
+function challengeFromRequest(
+  request: Request,
+  challenges: Map<string, BrowserPairingChallenge>,
+): BrowserPairingChallenge | null {
+  const token = new URL(request.url).searchParams.get("challenge");
+  if (!token) {
+    return null;
+  }
+  const challenge = challenges.get(token);
+  if (!challenge || challenge.consumed || challenge.expiresAt <= new Date().toISOString()) {
+    challenges.delete(token);
+    return null;
+  }
+  return challenge;
+}
+
+function consumeBrowserPairingChallenge(
+  challenges: Map<string, BrowserPairingChallenge>,
+  token: string,
+): BrowserPairingChallenge | null {
+  const challenge = challenges.get(token);
+  if (!challenge || challenge.consumed || challenge.expiresAt <= new Date().toISOString()) {
+    challenges.delete(token);
+    return null;
+  }
+  challenge.consumed = true;
+  challenges.delete(token);
+  return challenge;
+}
+
+function pruneBrowserPairingChallenges(challenges: Map<string, BrowserPairingChallenge>): void {
+  const now = new Date().toISOString();
+  for (const [token, challenge] of challenges) {
+    if (challenge.consumed || challenge.expiresAt <= now) {
+      challenges.delete(token);
+    }
+  }
+}
+
+function endpointFromRequest(request: Request): string {
+  const url = new URL(request.url);
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
+function safeEndpoint(value: string, request: Request): string {
+  try {
+    const endpoint = new URL(value);
+    if (endpoint.protocol === "http:" || endpoint.protocol === "https:") {
+      endpoint.pathname = endpoint.pathname.replace(/\/pair$/, "");
+      endpoint.search = "";
+      endpoint.hash = "";
+      return endpoint.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Fall back to the request origin below.
+  }
+  return endpointFromRequest(request);
 }
 
 function parseBoundedQueryParam(

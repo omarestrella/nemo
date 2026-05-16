@@ -1,16 +1,13 @@
 # Exposure And Packaging
 
-Nemo's agent is designed to stay private by default. It listens on
-`127.0.0.1:7331` unless you explicitly choose a different bind address, and
-every endpoint beyond `/v1/health` requires a paired bearer credential.
+Nemo's agent listens on `0.0.0.0:7331` by default so trusted LAN clients can discover it with Bonjour. Every endpoint beyond `/v1/health` requires a paired bearer credential.
 
 Transport reachability and Nemo authentication are separate layers:
 
-- The transport makes `http://127.0.0.1:7331` reachable from the Mac.
+- The transport makes the agent endpoint reachable from the Mac.
 - Nemo bearer auth decides whether a reachable request may read status data.
 
-Do not bind the agent directly to a public interface. Expose a narrow route
-through a reverse proxy, Tailscale Serve, or a user-managed SSH tunnel.
+Do not bind the agent directly to a public internet interface. For untrusted networks, expose a narrow route through a reverse proxy, Tailscale Serve, or a user-managed SSH tunnel.
 
 ## Install The Agent
 
@@ -34,7 +31,7 @@ sudo nemo-agent doctor --state-dir /var/lib/nemo-agent
 ```
 
 `nemo-agent init` creates a restrictive state directory and a systemd unit that
-binds the service to `127.0.0.1:7331`. The unit runs the compiled agent as root
+binds the service to `0.0.0.0:7331`. The unit runs the compiled agent as root
 and uses `dokku` from the service environment PATH. The agent keeps Dokku
 command execution limited in code to the read-only commands needed by the API.
 
@@ -58,7 +55,7 @@ credential in macOS Keychain.
 
 ## Localhost Only
 
-For development or host-local checks, keep the default listener:
+For host-local-only checks, override the listener:
 
 ```sh
 nemo-agent serve --state-dir /var/lib/nemo-agent --host 127.0.0.1 --port 7331
@@ -73,10 +70,44 @@ curl http://127.0.0.1:7331/v1/health
 This shape is not reachable from your Mac unless the Mac is the same machine or
 you add a forwarding transport such as SSH.
 
+## Local Raspberry Pi Smoke Test
+
+For local project testing, `rpi.local` is the arm64 Dokku host reachable as
+`omarestrella@rpi.local`. Skip the 1Password SSH agent when connecting from the
+development Mac:
+
+```sh
+bun run build:linux-arm64
+scp -o IdentityAgent=none dist/nemo-agent-linux-arm64 omarestrella@rpi.local:/tmp/nemo-agent
+ssh -o IdentityAgent=none omarestrella@rpi.local
+```
+
+On the Pi:
+
+```sh
+sudo install -m 0755 /tmp/nemo-agent /usr/local/bin/nemo-agent
+sudo nemo-agent init
+sudo systemctl daemon-reload
+sudo systemctl restart nemo-agent
+curl http://127.0.0.1:7331/v1/health
+curl http://rpi.local:7331/v1/health
+sudo nemo-agent doctor --state-dir /var/lib/nemo-agent
+```
+
+The installed unit should not pin a Dokku binary path:
+
+```sh
+systemctl cat nemo-agent | grep ExecStart
+```
+
+For an authenticated smoke, create a pairing session and exchange it locally
+against `http://127.0.0.1:7331`, then call `/v1/meta`, `/v1/apps`, an app detail
+endpoint, logs, and events with the returned bearer credential.
+
 ## HTTPS Reverse Proxy
 
-For non-loopback app connections, use HTTPS. The macOS app should reject or
-clearly block plain HTTP endpoints unless they are loopback addresses.
+For untrusted remote exposure, use HTTPS. Trusted LAN and loopback HTTP are
+supported for local discovery and pairing.
 
 The examples below expose the agent under `/_nemo` and strip that prefix before
 forwarding to the localhost listener. The agent still receives `/v1/...` paths.

@@ -3,12 +3,14 @@ import { arch, platform } from "node:os";
 
 import { DokkuCommandRunner, DokkuAdapter, isAllowedDokkuArgs } from "../dokku";
 import {
+  AVAHI_SERVICE_PATH,
   INSTALLED_BINARY_PATH,
   SYSTEMD_UNIT_PATH,
   defaultInstallPaths,
   ensureAgentStateOwnership,
   ensureHostInstall,
   fileContains,
+  renderAvahiService,
   renderSystemdUnit,
 } from "../install";
 import {
@@ -107,6 +109,7 @@ export async function doctorCommand(parsed: ParsedArgs): Promise<void> {
       "root",
     ),
   );
+  checks.push(...(await serviceDiscoveryChecks(installPaths.host, installPaths)));
   checks.push(...(await systemdChecks(installPaths.host, installPaths.port)));
   checks.push(await listenerCheck(installPaths.host, installPaths.port));
 
@@ -330,6 +333,86 @@ async function systemdChecks(
   ];
 }
 
+async function serviceDiscoveryChecks(
+  expectedHost: string,
+  installPaths: ReturnType<typeof defaultInstallPaths>,
+): Promise<Check[]> {
+  if (process.platform !== "linux") {
+    return [
+      {
+        name: "service discovery",
+        status: "WARN",
+        detail: "not running on Linux",
+      },
+    ];
+  }
+  if (isLoopbackHost(expectedHost)) {
+    return [
+      {
+        name: "service discovery",
+        status: "PASS",
+        detail: "skipped for loopback-only listener",
+      },
+    ];
+  }
+
+  const serviceFile = await fileCheck(
+    "service discovery file",
+    AVAHI_SERVICE_PATH,
+    renderAvahiService(installPaths),
+    0o644,
+    "root",
+    "root",
+  );
+  const avahi = await run(["systemctl", "is-active", "avahi-daemon.service"]);
+  const browse = await run(["avahi-browse", "-rt", "_nemo-agent._tcp"], 5_000);
+  const browseOutput = `${browse.stdout}\n${browse.stderr}`;
+  const browseFound =
+    browse.exitCode === 0 &&
+    browseOutput.includes("_nemo-agent._tcp") &&
+    browseOutput.includes(String(installPaths.port));
+  // avahi-browse lives in avahi-utils and is not always installed with the daemon.
+  // The daemon journal still tells us whether Avahi loaded and established our service.
+  const journal = browseFound
+    ? null
+    : await run([
+        "journalctl",
+        "-u",
+        "avahi-daemon.service",
+        "--no-pager",
+        "-n",
+        "80",
+      ]);
+  const journalOutput = `${journal?.stdout ?? ""}\n${journal?.stderr ?? ""}`;
+  const journalFound =
+    journal?.exitCode === 0 &&
+    journalOutput.includes("nemo-agent.service") &&
+    journalOutput.includes("successfully established");
+
+  return [
+    serviceFile,
+    {
+      name: "service discovery daemon",
+      status: avahi.exitCode === 0 ? "PASS" : "WARN",
+      detail:
+        avahi.stdout.trim() ||
+        avahi.stderr.trim() ||
+        "avahi-daemon.service not active",
+    },
+    {
+      name: "service discovery advertisement",
+      status: browseFound || journalFound ? "PASS" : "WARN",
+      detail: browseFound
+        ? firstLine(browseOutput)
+        : journalFound
+          ? "avahi-daemon established nemo-agent.service"
+        : firstLine(browseOutput) ||
+          firstLine(journalOutput) ||
+          "could not browse _nemo-agent._tcp; verify avahi-utils and mDNS networking",
+    },
+  ];
+}
+
 async function serviceUserReadCheck(
   name: string,
   path: string,
@@ -413,12 +496,16 @@ async function listenerCheck(
   return {
     name: "listener binding",
     status:
-      unsafe.length === 0 && expectedHost === "127.0.0.1" ? "PASS" : "FAIL",
+      unsafe.length === 0 || expectedHost === "0.0.0.0" ? "PASS" : "FAIL",
     detail:
       unsafe.length === 0
         ? listeners.join("; ")
         : `unsafe listener(s): ${unsafe.join("; ")}`,
   };
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 function compileTargetCheck(): Check {
