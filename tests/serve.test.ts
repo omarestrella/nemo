@@ -64,9 +64,11 @@ test("pairing exchange returns a bearer credential that can call meta", async ()
   });
 });
 
-test("browser pairing page approves a setup URI for the app", async () => {
+test("browser pairing page approves a verifier-bound credential exchange", async () => {
   const stateDir = await makeStateDir();
   const url = await startServer(stateDir);
+  const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+  const codeChallenge = codeChallengeS256(verifier);
 
   const page = await fetch(`${url}/pair`);
   expect(page.status).toBe(200);
@@ -84,12 +86,13 @@ test("browser pairing page approves a setup URI for the app", async () => {
   const started = await fetch(`${url}/v1/pairing/browser/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac" }),
+    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac", codeChallenge, codeChallengeMethod: "S256" }),
   });
   expect(started.status).toBe(200);
-  const startedBody = (await started.json()) as { pairUrl: string; challenge: string };
+  const startedBody = (await started.json()) as { pairUrl: string; challenge: string; deviceCode: string };
   expect(startedBody.pairUrl).toContain(`${url}/pair?challenge=`);
   expect(startedBody.challenge).toHaveLength(64);
+  expect(startedBody.deviceCode).toBe(startedBody.challenge);
 
   const challenge = await fetch(`${url}/v1/pairing/browser/challenge?challenge=${startedBody.challenge}`);
   expect(challenge.status).toBe(200);
@@ -112,15 +115,29 @@ test("browser pairing page approves a setup URI for the app", async () => {
   {
     const state = await AgentState.open({ stateDir });
     expect(state.listPairingSessions()).toHaveLength(0);
+    expect(state.listCredentials()).toHaveLength(0);
     state.close();
   }
 
   const secondStart = await fetch(`${url}/v1/pairing/browser/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac" }),
+    body: JSON.stringify({ endpoint: url, deviceName: "Browser Mac", codeChallenge, codeChallengeMethod: "S256" }),
   });
-  const secondStartBody = (await secondStart.json()) as { pairUrl: string; challenge: string };
+  const secondStartBody = (await secondStart.json()) as { pairUrl: string; challenge: string; deviceCode: string };
+  const pending = await fetch(`${url}/v1/pairing/browser/exchange`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceCode: secondStartBody.deviceCode,
+      codeVerifier: verifier,
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(pending.status).toBe(428);
+  expect(await pending.json()).toMatchObject({
+    error: { code: "PAIRING_AUTHORIZATION_PENDING", retryable: true },
+  });
   const approve = await fetch(`${url}/v1/pairing/browser/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -131,23 +148,42 @@ test("browser pairing page approves a setup URI for the app", async () => {
     }),
   });
   expect(approve.status).toBe(200);
-  const approveBody = (await approve.json()) as { setupUri: string };
-  const setupUri = approveBody.setupUri;
-  expect(setupUri).toBeTruthy();
-  const setup = new URL(setupUri ?? "");
-  expect(setup.searchParams.get("endpoint")).toBe(url);
-  const credential = await exchangeCredential(url, {
-    id: setup.searchParams.get("id") ?? "",
-    code: setup.searchParams.get("code") ?? "",
-  });
-  expect(credential.startsWith("nemo_")).toBe(true);
+  const approveBody = (await approve.json()) as { status: string; setupUri?: string; code?: string };
+  expect(approveBody).toMatchObject({ status: "approved" });
+  expect(approveBody.setupUri).toBeUndefined();
+  expect(approveBody.code).toBeUndefined();
 
-  const replay = await fetch(`${url}/v1/pairing/browser/complete`, {
+  const wrongVerifier = await fetch(`${url}/v1/pairing/browser/exchange`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      decision: "approve",
-      challenge: secondStartBody.challenge,
+      deviceCode: secondStartBody.deviceCode,
+      codeVerifier: "wrongabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(wrongVerifier.status).toBe(401);
+
+  const exchange = await fetch(`${url}/v1/pairing/browser/exchange`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceCode: secondStartBody.deviceCode,
+      codeVerifier: verifier,
+      deviceName: "Browser Mac",
+    }),
+  });
+  expect(exchange.status).toBe(200);
+  const exchangeBody = (await exchange.json()) as { credential: string };
+  const credential = exchangeBody.credential;
+  expect(credential.startsWith("nemo_")).toBe(true);
+
+  const replay = await fetch(`${url}/v1/pairing/browser/exchange`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceCode: secondStartBody.deviceCode,
+      codeVerifier: verifier,
       deviceName: "Browser Mac",
     }),
   });
@@ -164,7 +200,12 @@ test("browser pairing challenge trigger rejects public forwarded clients", async
       "content-type": "application/json",
       "x-forwarded-for": "203.0.113.10",
     },
-    body: JSON.stringify({ endpoint: url, deviceName: "Internet Mac" }),
+    body: JSON.stringify({
+      endpoint: url,
+      deviceName: "Internet Mac",
+      codeChallenge: codeChallengeS256("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      codeChallengeMethod: "S256",
+    }),
   });
   expect(response.status).toBe(403);
   expect(await response.json()).toMatchObject({
@@ -376,6 +417,11 @@ async function exchangeCredential(
   expect(exchange.status).toBe(200);
   const body = (await exchange.json()) as { credential: string };
   return body.credential;
+}
+
+function codeChallengeS256(verifier: string): string {
+  const digest = new Bun.CryptoHasher("sha256").update(verifier).digest();
+  return Buffer.from(digest).toString("base64url");
 }
 
 async function getJson(

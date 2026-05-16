@@ -21,9 +21,19 @@ struct NemoClient {
         return try await transport.post("/v1/pairing/exchange", body: request)
     }
 
-    func startBrowserPairing(endpoint: String, deviceName: String) async throws -> BrowserPairingStartResponse {
-        let request = BrowserPairingStartRequest(endpoint: endpoint, deviceName: deviceName)
+    func startBrowserPairing(endpoint: String, deviceName: String, codeChallenge: String) async throws -> BrowserPairingStartResponse {
+        let request = BrowserPairingStartRequest(
+            endpoint: endpoint,
+            deviceName: deviceName,
+            codeChallenge: codeChallenge,
+            codeChallengeMethod: "S256"
+        )
         return try await transport.post("/v1/pairing/browser/start", body: request)
+    }
+
+    func exchangeBrowserPairing(deviceCode: String, codeVerifier: String, deviceName: String) async throws -> PairingExchangeResponse {
+        let request = BrowserPairingExchangeRequest(deviceCode: deviceCode, codeVerifier: codeVerifier, deviceName: deviceName)
+        return try await transport.post("/v1/pairing/browser/exchange", body: request)
     }
 }
 
@@ -35,5 +45,13 @@ private struct PairingExchangeRequest: Encodable {
 
 private struct BrowserPairingStartRequest: Encodable {
     let endpoint: String
+    let deviceName: String
+    let codeChallenge: String
+    let codeChallengeMethod: String
+}
+
+private struct BrowserPairingExchangeRequest: Encodable {
+    let deviceCode: String
+    let codeVerifier: String
     let deviceName: String
 }

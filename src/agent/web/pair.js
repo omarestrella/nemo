@@ -86,7 +86,7 @@ async function complete(decision) {
 
   if (payload.status === "denied") {
     text.resultLabel.textContent = "Pairing denied";
-    text.resultHeadline.textContent = "No setup link was created";
+    text.resultHeadline.textContent = "Pairing was denied";
     text.resultMessage.textContent = "Start browser pairing from Nemo when you are ready to try again.";
     openNemo.hidden = true;
     text.manualFallback.textContent = "";
@@ -94,14 +94,10 @@ async function complete(decision) {
   }
 
   text.resultLabel.textContent = "Approved";
-  text.resultHeadline.textContent = "Open Nemo to finish pairing";
-  text.resultMessage.textContent = `Your setup link expires at ${formatTime(payload.expiresAt)} and can be used once.`;
-  openNemo.href = payload.setupUri;
-  openNemo.hidden = false;
-  text.manualFallback.innerHTML = `If the app does not open, use manual pairing with ID <code>${escapeHtml(payload.id)}</code> and code <code>${escapeHtml(payload.code)}</code>.`;
-  setTimeout(() => {
-    window.location.href = payload.setupUri;
-  }, 250);
+  text.resultHeadline.textContent = "Return to Nemo";
+  text.resultMessage.textContent = "Nemo will finish pairing automatically after it sees this approval.";
+  openNemo.hidden = true;
+  text.manualFallback.textContent = "";
 }
 
 function showLocked(message) {
@@ -122,22 +118,5 @@ function formatTime(value) {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
-  });
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
   });
 }
