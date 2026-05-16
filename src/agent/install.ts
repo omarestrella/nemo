@@ -3,6 +3,11 @@ import { chmod, chown, mkdir, rm, stat } from "node:fs/promises";
 import { AGENT_VERSION } from "./types";
 export const DEFAULT_CONFIG_DIR = "/etc/nemo-agent";
 export const INSTALLED_BINARY_PATH = "/usr/local/bin/nemo-agent";
+export const SERVICE_USER = "nemo-agent";
+export const SERVICE_GROUP = "nemo-agent";
+export const HELPER_DIR = "/usr/local/lib/nemo-agent";
+export const DOKKU_READONLY_HELPER_PATH = `${HELPER_DIR}/dokku-readonly`;
+export const SUDOERS_PATH = "/etc/sudoers.d/nemo-agent";
 export const SYSTEMD_UNIT_PATH = "/etc/systemd/system/nemo-agent.service";
 export const AVAHI_SERVICE_PATH = "/etc/avahi/services/nemo-agent.service";
 
@@ -42,12 +47,15 @@ export async function ensureHostInstall(paths: InstallPaths): Promise<InstallRes
   }
 
   const root = { uid: 0, gid: 0 };
+  await ensureServiceAccount(result);
+  const service = await serviceOwner();
   await ensureDirectory(paths.configDir, 0o750, root, result);
-  await ensureDirectory(paths.stateDir, 0o700, root, result);
+  await ensureDirectory(paths.stateDir, 0o700, service, result);
+  await ensureDirectory(HELPER_DIR, 0o755, root, result);
+  await installFile(DOKKU_READONLY_HELPER_PATH, renderDokkuReadonlyHelper(), 0o755, root, result);
+  await installFile(SUDOERS_PATH, renderSudoers(), 0o440, root, result);
   await installFile(SYSTEMD_UNIT_PATH, renderSystemdUnit(paths), 0o644, root, result);
   await installAvahiService(paths, root, result);
-  await removeLegacyFile("/etc/sudoers.d/nemo-agent", result);
-  await removeLegacyFile("/usr/local/lib/nemo-agent/dokku-readonly", result);
 
   return result;
 }
@@ -56,9 +64,10 @@ export async function ensureAgentStateOwnership(paths: { stateDir: string; datab
   if (process.platform !== "linux" || typeof process.getuid !== "function" || process.getuid() !== 0) {
     return;
   }
-  for (const path of [paths.stateDir, paths.databasePath, paths.secretPath]) {
+  const owner = await serviceOwner();
+  for (const path of [paths.stateDir, paths.databasePath, paths.secretPath, `${paths.databasePath}-shm`, `${paths.databasePath}-wal`]) {
     if (await Bun.file(path).exists()) {
-      await chown(path, 0, 0);
+      await chown(path, owner.uid, owner.gid);
     }
   }
 }
@@ -71,7 +80,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALLED_BINARY_PATH} serve --state-dir ${paths.stateDir} --host ${paths.host} --port ${paths.port}
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+ExecStart=${INSTALLED_BINARY_PATH} serve --state-dir ${paths.stateDir} --host ${paths.host} --port ${paths.port} --dokku-helper ${DOKKU_READONLY_HELPER_PATH}
 Restart=on-failure
 RestartSec=2
 PrivateTmp=true
@@ -100,6 +111,85 @@ export function renderAvahiService(paths: InstallPaths): string {
     <txt-record>path=/</txt-record>
   </service>
 </service-group>
+`;
+}
+
+export function renderDokkuReadonlyHelper(): string {
+  return `#!/bin/sh
+set -eu
+
+app_pattern='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+
+is_app() {
+  printf '%s\\n' "$1" | grep -Eq "$app_pattern"
+}
+
+is_limit() {
+  case "$1" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  [ "$1" -ge 1 ] && [ "$1" -le 500 ]
+}
+
+allowed=0
+case "$#" in
+  1)
+    if [ "$1" = "version" ] || [ "$1" = "events" ]; then
+      allowed=1
+    fi
+    ;;
+  2)
+    if [ "$1" = "--quiet" ] && [ "$2" = "apps:list" ]; then
+      allowed=1
+    elif [ "$1" = "urls" ] && is_app "$2"; then
+      allowed=1
+    elif [ "$1" = "letsencrypt:active" ] && is_app "$2"; then
+      allowed=1
+    fi
+    ;;
+  3)
+    if [ "$1" = "ps:report" ] && is_app "$2" && { [ "$3" = "--running" ] || [ "$3" = "--deployed" ] || [ "$3" = "--status" ]; }; then
+      allowed=1
+    elif [ "$1" = "ports:report" ] && is_app "$2" && [ "$3" = "--ports-map" ]; then
+      allowed=1
+    elif [ "$1" = "domains:report" ] && is_app "$2" && [ "$3" = "--domains-app-vhosts" ]; then
+      allowed=1
+    fi
+    ;;
+  4)
+    if [ "$1" = "logs" ] && is_app "$2" && [ "$3" = "--num" ] && is_limit "$4"; then
+      allowed=1
+    fi
+    ;;
+esac
+
+if [ "$allowed" -ne 1 ]; then
+  echo "nemo-agent: Dokku command is not allowlisted" >&2
+  exit 64
+fi
+
+if command -v dokku >/dev/null 2>&1; then
+  exec dokku "$@"
+fi
+
+if [ -x /usr/bin/dokku ]; then
+  exec /usr/bin/dokku "$@"
+fi
+
+if [ -x /usr/local/bin/dokku ]; then
+  exec /usr/local/bin/dokku "$@"
+fi
+
+echo "nemo-agent: dokku binary not found" >&2
+exit 127
+`;
+}
+
+export function renderSudoers(): string {
+  return `Defaults:${SERVICE_USER} !requiretty
+${SERVICE_USER} ALL=(root) NOPASSWD: ${DOKKU_READONLY_HELPER_PATH} *
 `;
 }
 
@@ -178,12 +268,100 @@ async function statPath(path: string): Promise<Awaited<ReturnType<typeof stat>> 
   }
 }
 
+async function ensureServiceAccount(result: InstallResult): Promise<void> {
+  if (!(await groupExists(SERVICE_GROUP))) {
+    await runInstallCommand(["groupadd", "--system", SERVICE_GROUP]);
+    result.changed.push(`created group ${SERVICE_GROUP}`);
+  }
+  if (!(await userExists(SERVICE_USER))) {
+    await runInstallCommand([
+      "useradd",
+      "--system",
+      "--gid",
+      SERVICE_GROUP,
+      "--home-dir",
+      "/nonexistent",
+      "--shell",
+      "/usr/sbin/nologin",
+      "--no-create-home",
+      SERVICE_USER,
+    ]);
+    result.changed.push(`created user ${SERVICE_USER}`);
+  }
+}
+
+async function userExists(user: string): Promise<boolean> {
+  return (await run(["id", "-u", user])).exitCode === 0;
+}
+
+async function groupExists(group: string): Promise<boolean> {
+  return (await run(["getent", "group", group])).exitCode === 0;
+}
+
+async function serviceOwner(): Promise<Owner> {
+  const uid = await idValue(["id", "-u", SERVICE_USER]);
+  const gid = await idValue(["getent", "group", SERVICE_GROUP], (value) => value.split(":")[2]);
+  return { uid, gid };
+}
+
+async function idValue(args: string[], select: (value: string) => string | undefined = (value) => value): Promise<number> {
+  const result = await run(args);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `${args.join(" ")} failed`);
+  }
+  const raw = select(result.stdout.trim());
+  const value = Number(raw);
+  if (!Number.isInteger(value)) {
+    throw new Error(`Could not resolve numeric id from ${args.join(" ")}`);
+  }
+  return value;
+}
+
+async function runInstallCommand(args: string[]): Promise<void> {
+  const result = await run(args);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `${args.join(" ")} failed`);
+  }
+}
+
+async function run(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  try {
+    const process = Bun.spawn(args, {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+      process.exited,
+    ]);
+    return { exitCode, stdout, stderr };
+  } catch (error) {
+    return {
+      exitCode: 127,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : "command failed",
+    };
+  }
+}
+
 function renderInstallScript(paths: InstallPaths): string {
   return `Run as root on the Dokku host to install host integration:
 
+getent group ${SERVICE_GROUP} >/dev/null || groupadd --system ${SERVICE_GROUP}
+id -u ${SERVICE_USER} >/dev/null 2>&1 || useradd --system --gid ${SERVICE_GROUP} --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home ${SERVICE_USER}
 install -d -m 0750 ${paths.configDir}
 install -d -m 0700 ${paths.stateDir}
-chown root:root ${paths.configDir} ${paths.stateDir}
+install -d -m 0755 ${HELPER_DIR}
+chown root:root ${paths.configDir} ${HELPER_DIR}
+chown ${SERVICE_USER}:${SERVICE_GROUP} ${paths.stateDir}
+
+# ${DOKKU_READONLY_HELPER_PATH}
+${renderDokkuReadonlyHelper()}
+
+# ${SUDOERS_PATH}
+${renderSudoers()}
 
 # ${SYSTEMD_UNIT_PATH}
 ${renderSystemdUnit(paths)}
