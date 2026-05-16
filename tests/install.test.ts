@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { evaluateListenerCheck } from "../src/agent/commands/doctor";
 import {
   defaultInstallPaths,
   renderAvahiService,
@@ -32,4 +33,16 @@ test("Avahi service advertises the Nemo agent endpoint", () => {
   expect(service).toContain("<port>7331</port>");
   expect(service).toContain("<txt-record>apiVersion=1</txt-record>");
   expect(service).toContain("<txt-record>path=/</txt-record>");
+});
+
+test("listener check fails loopback listener when expecting all interfaces", () => {
+  expect(
+    evaluateListenerCheck("0.0.0.0", 7331, [
+      "LISTEN 0 511 127.0.0.1:7331 0.0.0.0:*",
+    ]),
+  ).toMatchObject({
+    name: "listener binding",
+    status: "FAIL",
+    detail: "unsafe listener(s): LISTEN 0 511 127.0.0.1:7331 0.0.0.0:*",
+  });
 });

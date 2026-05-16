@@ -488,6 +488,14 @@ async function listenerCheck(
       detail: `no listener on port ${expectedPort}`,
     };
   }
+  return evaluateListenerCheck(expectedHost, expectedPort, listeners);
+}
+
+export function evaluateListenerCheck(
+  expectedHost: string,
+  expectedPort: number,
+  listeners: string[],
+): Check {
   const unsafe = listeners.filter(
     (line) =>
       !line.includes(`${expectedHost}:${expectedPort}`) &&
@@ -495,8 +503,7 @@ async function listenerCheck(
   );
   return {
     name: "listener binding",
-    status:
-      unsafe.length === 0 || expectedHost === "0.0.0.0" ? "PASS" : "FAIL",
+    status: unsafe.length === 0 ? "PASS" : "FAIL",
     detail:
       unsafe.length === 0
         ? listeners.join("; ")

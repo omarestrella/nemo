@@ -334,9 +334,11 @@ async function exchangeBrowserPairing(
   });
 }
 
-function isTrustedPairingTrigger(request: Request, server: ReturnType<typeof Bun.serve>): boolean {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const address = forwarded || server.requestIP(request)?.address || "";
+export function isTrustedPairingTrigger(
+  request: Request,
+  server: Pick<ReturnType<typeof Bun.serve>, "requestIP">,
+): boolean {
+  const address = server.requestIP(request)?.address || "";
   return isTrustedPairingAddress(address);
 }
 
