@@ -14,12 +14,6 @@
   a click away.
 </p>
 
-## Status
-
-Nemo is early open-source software. The agent and pairing API are usable, the
-macOS client is under active development, and release packaging is set up for
-signed Homebrew cask distribution once Apple signing credentials are configured.
-
 ## Screenshots
 
 <p align="center">
@@ -66,29 +60,14 @@ curl -fsSL https://omarestrella.github.io/nemo/install.sh | \
 - `NEMO_STATE_DIR`: state directory. Defaults to `/var/lib/nemo-agent`.
 - `NEMO_INSTALL_ONLY=1`: install the binary without initializing host artifacts.
 
-### Pair Nemo
+### Pair in the Browser
 
-Start a short-lived pairing session on the Dokku host:
+Open Nemo from the macOS menu bar. If your Dokku host is discovered on the
+local network, choose it and click **Pair this Mac**.
 
-```sh
-nemo-agent pair start \
-  --name "MacBook" \
-  --endpoint http://dokku-host.local:7331
-```
-
-Enter the pairing ID and code in the macOS app. Nemo stores the returned
-credential in macOS Keychain.
-
-## Security Model
-
-The long-running agent runs as the dedicated `nemo-agent` user. Root is only
-required for install or repair of host artifacts and for the constrained Dokku
-wrapper invoked by the service.
-
-The default paired credential is read-only. Requests are authenticated with
-paired bearer credentials, and untrusted remote access should go through HTTPS,
-Tailscale Serve, or a user-managed SSH tunnel rather than exposing the agent
-directly to the public internet.
+Nemo opens the agent's browser approval page. Approve the request in the
+browser, then return to the app. The macOS app completes pairing and stores the
+credential in Keychain.
 
 ## Development
 
@@ -128,26 +107,6 @@ real Dokku commands. Use `bun run test:docker` to run only that test. It
 requires Docker and may take several minutes the first time it pulls the Dokku
 image.
 
-## Releases
-
-GitHub releases are created from `v*` tags. A release publishes:
-
-- `Nemo.zip`: signed and notarized macOS app for the Homebrew cask.
-- `nemo-agent-linux-x64`: Linux x64 agent binary.
-- `nemo-agent-linux-arm64`: Linux arm64 agent binary.
-- `SHA256SUMS`: checksums for release assets.
-
-Release setup and Apple signing details are in
-[docs/releasing.md](docs/releasing.md).
-
-## More Docs
-
-- [Exposure and packaging](docs/exposure-and-packaging.md)
-- [Releasing](docs/releasing.md)
-- [Project website](https://omarestrella.github.io/nemo/)
-- [Project plan index](docs/index.md)
-
 ## License
 
-A license has not been declared yet. Add one before accepting external
-contributions.
+MIT

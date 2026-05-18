@@ -2,6 +2,7 @@
   "name": "dokku-nemo",
   "module": "src/index.ts",
   "type": "module",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "bun --hot src/index.ts serve --state-dir .nemo-agent",
