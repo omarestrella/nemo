@@ -6,7 +6,7 @@
     <title>Nemo</title>
     <meta
       name="description"
-      content="Nemo is a macOS menu bar app for monitoring your apps through a small paired host agent."
+      content="Nemo is a small macOS menu bar helper for personal Dokku hosts."
     >
     <link rel="canonical" href="https://omarestrella.github.io/nemo/">
     <link rel="icon" href="assets/images/nemo-app-icon.png">
@@ -28,94 +28,54 @@
         </nav>
 
         <div class="hero-content">
-          <p class="eyebrow">macOS menu bar monitoring</p>
-          <h1>Keep production close without keeping a terminal open.</h1>
+          <h1>A menu bar helper for Dokku.</h1>
           <p class="lede">
-            Nemo pairs a native macOS app with a small Linux agent on your
-            server, then keeps app health, URLs, HTTPS state, logs, and recent
-            platform events one click away.
+            Nemo is a small Mac app with a Linux agent for a personal Dokku
+            host. Check app status, URLs, HTTPS, logs, and recent events from
+            the menu bar.
           </p>
           <div class="actions">
             <a class="button primary" href="#install">Install</a>
-            <a class="button secondary" href="https://github.com/omarestrella/nemo">View source</a>
+            <a class="button secondary" href="https://github.com/omarestrella/nemo">GitHub</a>
           </div>
         </div>
       </section>
 
       <section id="install" class="section">
         <div class="section-heading">
-          <p class="eyebrow">Install</p>
-          <h2>A Mac app, a host agent, and a pairing flow.</h2>
+          <h2>Install.</h2>
           <p>
-            Install Nemo on your Mac, install the agent on the server, then
-            pair them once from the menu bar. The app stores its credential in
-            Keychain and talks to the agent over the endpoint you choose.
+            Install the Mac app, run the agent installer on your Dokku host,
+            then pair from Nemo.
           </p>
         </div>
 
         <div class="install-grid">
           <article>
             <h3>macOS app</h3>
-            <p>Install the signed release build with the Homebrew cask from the Nemo repo.</p>
+            <p>Install the signed app with the Homebrew cask from this repo.</p>
             <pre><code>brew tap omarestrella/nemo https://github.com/omarestrella/nemo
 brew install --cask omarestrella/nemo/nemo</code></pre>
           </article>
 
           <article>
-            <h3>Linux host agent</h3>
-            <p>Run the installer on the server to install the agent, service account, and systemd unit.</p>
+            <h3>Dokku host agent</h3>
+            <p>Run the installer on the host to install the agent and systemd service.</p>
             <pre><code>curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh</code></pre>
           </article>
         </div>
       </section>
 
-      <section class="section copy-grid">
+      <section class="section compact">
         <div class="section-heading">
-          <p class="eyebrow">Workflow</p>
-          <h2>Built for quick checks, not a new dashboard habit.</h2>
+          <h2>What it does.</h2>
         </div>
 
-        <div class="copy-list">
-          <article>
-            <h3>Scan the current state.</h3>
-            <p>
-              See which apps are running, which URLs are attached, and whether
-              HTTPS is configured before you reach for a shell.
-            </p>
-          </article>
-
-          <article>
-            <h3>Open the context you need.</h3>
-            <p>
-              Jump from the menu bar into app URLs, logs, recent platform
-              events, or the host connection settings without digging through
-              command history.
-            </p>
-          </article>
-
-          <article>
-            <h3>Pair from the browser.</h3>
-            <p>
-              Start from Nemo, approve the request on the host, and let the Mac
-              app finish the exchange. No long-lived setup token needs to be
-              copied into notes.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section split">
-        <div class="section-heading">
-          <p class="eyebrow">Security model</p>
-          <h2>Read-only by default.</h2>
-        </div>
-        <p>
-          The long-running service runs as a dedicated <code>nemo-agent</code>
-          user. Root is only needed for install and repair, and server commands
-          go through a constrained wrapper. Paired clients use bearer
-          credentials, and untrusted remote access should go through HTTPS or a
-          private network transport.
-        </p>
+        <ul class="plain-list">
+          <li><strong>Shows app status.</strong> Running state, domains, and HTTPS at a glance.</li>
+          <li><strong>Opens useful context.</strong> App URLs, logs, recent events, and host settings.</li>
+          <li><strong>Pairs from the browser.</strong> Start in Nemo, approve on the host, and keep the credential in Keychain.</li>
+        </ul>
       </section>
     </main>
   </body>
