@@ -1,4 +1,4 @@
-# Exposure And Packaging
+# Packaging
 
 Nemo's agent listens on `0.0.0.0:7331` by default so trusted LAN clients can discover it with Bonjour. Every endpoint beyond `/v1/health` requires a paired bearer credential.
 
@@ -7,7 +7,7 @@ Transport reachability and Nemo authentication are separate layers:
 - The transport makes the agent endpoint reachable from the Mac.
 - Nemo bearer auth decides whether a reachable request may read status data.
 
-Do not bind the agent directly to a public internet interface. For untrusted networks, expose a narrow route through a reverse proxy, Tailscale Serve, or a user-managed SSH tunnel.
+Do not bind the agent directly to a public internet interface. For untrusted networks, expose a narrow route through a reverse proxy or Tailscale Serve.
 
 ## Install The Agent
 
@@ -74,41 +74,7 @@ curl http://127.0.0.1:7331/v1/health
 ```
 
 This shape is not reachable from your Mac unless the Mac is the same machine or
-you add a forwarding transport such as SSH.
-
-## Local Raspberry Pi Smoke Test
-
-For local project testing, `rpi.local` is the arm64 Dokku host reachable as
-`omarestrella@rpi.local`. Skip the 1Password SSH agent when connecting from the
-development Mac:
-
-```sh
-bun run build:linux-arm64
-scp -o IdentityAgent=none dist/nemo-agent-linux-arm64 omarestrella@rpi.local:/tmp/nemo-agent
-ssh -o IdentityAgent=none omarestrella@rpi.local
-```
-
-On the Pi:
-
-```sh
-sudo install -m 0755 /tmp/nemo-agent /usr/local/bin/nemo-agent
-sudo nemo-agent init
-sudo systemctl daemon-reload
-sudo systemctl restart nemo-agent
-curl http://127.0.0.1:7331/v1/health
-curl http://rpi.local:7331/v1/health
-sudo nemo-agent doctor --state-dir /var/lib/nemo-agent
-```
-
-The installed unit should not pin a Dokku binary path:
-
-```sh
-systemctl cat nemo-agent | grep ExecStart
-```
-
-For an authenticated smoke, create a pairing session and exchange it locally
-against `http://127.0.0.1:7331`, then call `/v1/meta`, `/v1/apps`, an app detail
-endpoint, logs, and events with the returned bearer credential.
+you add another forwarding transport.
 
 ## HTTPS Reverse Proxy
 
@@ -168,24 +134,6 @@ nemo-agent pair start \
 
 Tailscale is optional. Nemo does not require a tailnet, local SSH agent, or
 1Password.
-
-## SSH Tunnel
-
-If you prefer not to configure a reverse proxy, forward the localhost listener
-yourself:
-
-```sh
-ssh -N -L 7331:127.0.0.1:7331 dokku.example.com
-```
-
-Then pair and connect the Mac to:
-
-```text
-http://127.0.0.1:7331
-```
-
-Keep the tunnel under your own launchd, shell, or SSH configuration. Nemo does
-not store SSH private keys.
 
 ## Release Packaging
 
