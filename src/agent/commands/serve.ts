@@ -28,13 +28,20 @@ const BROWSER_PAIRING_POLL_INTERVAL_SECONDS = 2;
 export async function serveCommand(parsed: ParsedArgs): Promise<void> {
   const state = await AgentState.open({ stateDir: stateDir(parsed) });
   const dokkuWrapper = flagString(parsed, "dokku-wrapper");
+  const commandPrefix = dokkuWrapper ? ["sudo", "-n", dokkuWrapper] : ["dokku"];
   const runner = new DokkuCommandRunner({
-    commandPrefix: dokkuWrapper ? ["sudo", "-n", dokkuWrapper] : ["dokku"],
+    commandPrefix,
     timeoutMs: flagInt(parsed, "command-timeout-ms") ?? 8_000,
     outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
     concurrency: flagInt(parsed, "command-concurrency") ?? 4,
   });
-  const dokku = new DokkuAdapter(runner);
+  const writeRunner = new DokkuCommandRunner({
+    commandPrefix,
+    timeoutMs: flagInt(parsed, "write-command-timeout-ms") ?? 120_000,
+    outputLimitBytes: flagInt(parsed, "output-limit-bytes") ?? 256 * 1024,
+    concurrency: 1,
+  });
+  const dokku = new DokkuAdapter(runner, writeRunner);
   const bindHost = flagString(parsed, "host") ?? "0.0.0.0";
   const port = flagInt(parsed, "port") ?? 7331;
   const publicHost = flagString(parsed, "public-host") ?? hostname();
@@ -98,7 +105,14 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
             host: publicHost,
             platform: "dokku",
             platformVersion: version.version,
-            capabilities: ["apps", "letsencrypt", "logs", "events"],
+            capabilities: [
+              "apps",
+              "letsencrypt",
+              "logs",
+              "events",
+              "app:restart",
+              "app:rebuild",
+            ],
           });
         }),
       },
@@ -126,6 +140,20 @@ export async function serveCommand(parsed: ParsedArgs): Promise<void> {
           }
           const lines = parseBoundedQueryParam(request, "lines", 200);
           return Response.json(await dokku.getAppLogs(app, lines));
+        }),
+      },
+      "/v1/apps/:app/actions/restart": {
+        POST: handler(errors, auth(state, "write:apps"), async (request) => {
+          const { app } = request.params;
+          await requireWriteActionConfirmation(request, "restart");
+          return Response.json(await dokku.restartApp(app));
+        }),
+      },
+      "/v1/apps/:app/actions/rebuild": {
+        POST: handler(errors, auth(state, "write:apps"), async (request) => {
+          const { app } = request.params;
+          await requireWriteActionConfirmation(request, "rebuild");
+          return Response.json(await dokku.rebuildApp(app));
         }),
       },
       "/v1/apps/:app": {
@@ -383,6 +411,26 @@ function parseBoundedQueryParam(
     );
   }
   return parsed;
+}
+
+async function requireWriteActionConfirmation(
+  request: Request,
+  action: "restart" | "rebuild",
+): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    throw new NemoError("BAD_REQUEST", "Invalid JSON body", { status: 400 });
+  }
+
+  if (body.confirm !== true) {
+    throw new NemoError(
+      "BAD_REQUEST",
+      `${action} requires confirm: true`,
+      { status: 400 },
+    );
+  }
 }
 
 async function exchangePairing(

@@ -30,6 +30,8 @@ case "$#" in
       allowed=1
     elif [ "$1" = "letsencrypt:active" ] && is_app "$2"; then
       allowed=1
+    elif { [ "$1" = "ps:restart" ] || [ "$1" = "ps:rebuild" ]; } && is_app "$2"; then
+      allowed=1
     fi
     ;;
   3)

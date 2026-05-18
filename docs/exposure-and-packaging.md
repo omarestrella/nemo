@@ -187,16 +187,29 @@ http://127.0.0.1:7331
 Keep the tunnel under your own launchd, shell, or SSH configuration. Nemo does
 not store SSH private keys.
 
-## Packaging Direction
+## Release Packaging
 
-The first installer shape is the shell-script output produced by
-`nemo-agent init` when it cannot install directly. That keeps the host changes
-auditable while the read-only workflow is still stabilizing.
+The public Linux install path is the static root installer:
 
-After the macOS client is usable, the likely next packaging step is:
+```sh
+curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | sh
+```
 
-- Debian package for Linux host artifacts and systemd integration.
-- Homebrew formula or tap for installing the macOS app and CLI helpers.
+That script downloads the matching `nemo-agent-linux-x64` or
+`nemo-agent-linux-arm64` binary from the latest GitHub release, verifies it
+against `SHA256SUMS` when available, installs `/usr/local/bin/nemo-agent`, runs
+`nemo-agent init`, enables the systemd service, and runs `doctor`.
 
-The project should avoid package formats that hide the systemd unit or state
-layout from review.
+The public macOS install path is the Homebrew cask in this repository:
+
+```sh
+brew tap omarestrella/nemo https://github.com/omarestrella/nemo
+brew install --cask omarestrella/nemo/nemo
+```
+
+The cask downloads `Nemo.zip` from the latest GitHub release. The release
+workflow expects that zip to be Developer ID signed, notarized, and stapled
+before publishing. Details are in `docs/releasing.md`.
+
+The project should still avoid package formats that hide the systemd unit or
+state layout from review.

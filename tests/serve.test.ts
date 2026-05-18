@@ -61,7 +61,14 @@ test("pairing exchange returns a bearer credential that can call meta", async ()
     host: "test-host",
     platform: "dokku",
     platformVersion: null,
-    capabilities: ["apps", "letsencrypt", "logs", "events"],
+    capabilities: [
+      "apps",
+      "letsencrypt",
+      "logs",
+      "events",
+      "app:restart",
+      "app:rebuild",
+    ],
   });
 });
 
@@ -236,6 +243,99 @@ test("logs and events require dedicated read scopes", async () => {
     headers: { authorization: `Bearer ${credential}` },
   });
   expect(events.status).toBe(401);
+});
+
+test("write actions require write credentials plus confirmation", async () => {
+  const stateDir = await makeStateDir();
+  const dokkuBin = await makeFakeDokku();
+  const readPairing = await createPairing(stateDir, "read");
+  const writePairing = await createPairing(stateDir, "write:apps");
+  const url = await startServer(stateDir, dokkuBin);
+  const readCredential = await exchangeCredential(url, readPairing);
+  const writeCredential = await exchangeCredential(url, writePairing);
+
+  const writeCannotRead = await fetch(`${url}/v1/meta`, {
+    headers: { authorization: `Bearer ${writeCredential}` },
+  });
+  expect(writeCannotRead.status).toBe(401);
+
+  const readCannotWrite = await postJson(
+    `${url}/v1/apps/api/actions/restart`,
+    readCredential,
+    { confirm: true },
+  );
+  expect(readCannotWrite.status).toBe(401);
+
+  const missingConfirmation = await postJson(
+    `${url}/v1/apps/api/actions/restart`,
+    writeCredential,
+    {},
+  );
+  expect(missingConfirmation.status).toBe(400);
+  expect(await missingConfirmation.json()).toMatchObject({
+    error: { code: "BAD_REQUEST", message: "restart requires confirm: true" },
+  });
+
+  const restart = await postJson(
+    `${url}/v1/apps/api/actions/restart`,
+    writeCredential,
+    { confirm: true },
+  );
+  expect(restart.status).toBe(200);
+  expect(await restart.json()).toMatchObject({
+    status: "ok",
+    app: "api",
+    action: "restart",
+    command: ["ps:restart", "api"],
+    exitCode: 0,
+    stdout: "restarted api\n",
+    stderr: "",
+  });
+
+  const rebuild = await postJson(
+    `${url}/v1/apps/api/actions/rebuild`,
+    writeCredential,
+    { confirm: true },
+  );
+  expect(rebuild.status).toBe(200);
+  expect(await rebuild.json()).toMatchObject({
+    status: "ok",
+    app: "api",
+    action: "rebuild",
+    command: ["ps:rebuild", "api"],
+    exitCode: 0,
+    stdout: "rebuilt api\n",
+    stderr: "",
+  });
+});
+
+test("write action failures return command output", async () => {
+  const stateDir = await makeStateDir();
+  const dokkuBin = await makeFakeDokku({ failRestart: true });
+  const pairing = await createPairing(stateDir, "write:apps");
+  const url = await startServer(stateDir, dokkuBin);
+  const credential = await exchangeCredential(url, pairing);
+
+  const response = await postJson(
+    `${url}/v1/apps/api/actions/restart`,
+    credential,
+    { confirm: true },
+  );
+
+  expect(response.status).toBe(502);
+  expect(await response.json()).toMatchObject({
+    error: {
+      code: "PLATFORM_COMMAND_FAILED",
+      message: "restart failed",
+      retryable: true,
+      details: {
+        command: ["ps:restart", "api"],
+        exitCode: 12,
+        stdout: "",
+        stderr: "restart failed\n",
+      },
+    },
+  });
 });
 
 test("logs and events return raw-first API models", async () => {
@@ -434,8 +534,23 @@ async function getJson(
   return (await response.json()) as Record<string, unknown>;
 }
 
+async function postJson(
+  url: string,
+  credential: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  return await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${credential}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 async function makeFakeDokku(
-  options: { eventsUnavailable?: boolean } = {},
+  options: { eventsUnavailable?: boolean; failRestart?: boolean } = {},
 ): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "nemo-fake-dokku-"));
   cleanupPaths.push(dir);
@@ -449,6 +564,9 @@ async function makeFakeDokku(
           "",
         ].join("\n"),
       )}`;
+  const restartCase = options.failRestart
+    ? "printf '%s\\n' 'restart failed' >&2; exit 12"
+    : "printf '%s\\n' 'restarted api'";
   await Bun.write(
     path,
     `#!/bin/sh
@@ -468,6 +586,12 @@ plain api line
     ;;
   "events")
     ${eventsCase}
+    ;;
+  "ps:restart api")
+    ${restartCase}
+    ;;
+  "ps:rebuild api")
+    printf '%s\\n' 'rebuilt api'
     ;;
   *)
     printf '%s\\n' "unexpected dokku args: $*" >&2

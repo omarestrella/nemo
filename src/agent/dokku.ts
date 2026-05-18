@@ -2,6 +2,8 @@ import { NemoError } from "./errors";
 import type {
   AppLogs,
   AppSummary,
+  AppWriteAction,
+  AppWriteActionResult,
   DokkuPlatform,
   LogLine,
   PlatformEvent,
@@ -105,7 +107,10 @@ export class DokkuCommandRunner implements IDokkuCommandRunner {
 }
 
 export class DokkuAdapter implements DokkuPlatform {
-  constructor(private readonly runner: IDokkuCommandRunner) {}
+  constructor(
+    private readonly runner: IDokkuCommandRunner,
+    private readonly writeRunner: IDokkuCommandRunner = runner,
+  ) {}
 
   async version(): Promise<PlatformVersion> {
     const result = await this.runRequired(["version"]);
@@ -233,6 +238,14 @@ export class DokkuAdapter implements DokkuPlatform {
     };
   }
 
+  async restartApp(app: string): Promise<AppWriteActionResult> {
+    return await this.runAppWriteAction(app, "restart", ["ps:restart", app]);
+  }
+
+  async rebuildApp(app: string): Promise<AppWriteActionResult> {
+    return await this.runAppWriteAction(app, "rebuild", ["ps:rebuild", app]);
+  }
+
   private async runRequired(args: string[]): Promise<CommandResult> {
     const result = await this.runner.run(args);
     if (result.timedOut) {
@@ -262,6 +275,64 @@ export class DokkuAdapter implements DokkuPlatform {
     } catch {
       return null;
     }
+  }
+
+  private async runAppWriteAction(
+    app: string,
+    action: AppWriteAction,
+    args: string[],
+  ): Promise<AppWriteActionResult> {
+    if (!isValidAppName(app)) {
+      throw new NemoError("INVALID_APP_NAME", "Invalid app name", {
+        status: 400,
+      });
+    }
+
+    const apps = await this.listApps();
+    if (!apps.includes(app)) {
+      throw new NemoError("NOT_FOUND", "App not found", { status: 404 });
+    }
+
+    const result = await this.runWriteRequired(args);
+    return {
+      status: "ok",
+      app,
+      action,
+      command: result.args,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated,
+    };
+  }
+
+  private async runWriteRequired(args: string[]): Promise<CommandResult> {
+    const result = await this.writeRunner.run(args);
+    if (result.timedOut) {
+      throw new NemoError(
+        "PLATFORM_COMMAND_TIMEOUT",
+        `${args[0] ?? "Dokku command"} timed out`,
+        {
+          status: 504,
+          retryable: true,
+          details: commandFailureDetails(result),
+        },
+      );
+    }
+    if (result.exitCode !== 0) {
+      throw new NemoError(
+        "PLATFORM_COMMAND_FAILED",
+        firstNonEmptyLine(result.stderr || result.stdout) ??
+          "Platform command failed",
+        {
+          status: 502,
+          retryable: true,
+          details: commandFailureDetails(result),
+        },
+      );
+    }
+    return result;
   }
 }
 
@@ -319,6 +390,14 @@ export function isAllowedDokkuArgs(args: string[]): boolean {
   if (
     args.length === 2 &&
     args[0] === "letsencrypt:active" &&
+    args[1] !== undefined &&
+    isValidAppName(args[1])
+  ) {
+    return true;
+  }
+  if (
+    args.length === 2 &&
+    (args[0] === "ps:restart" || args[0] === "ps:rebuild") &&
     args[1] !== undefined &&
     isValidAppName(args[1])
   ) {
@@ -531,6 +610,18 @@ function unavailableEvents(
     retryable: true,
     message,
     raw,
+  };
+}
+
+function commandFailureDetails(result: CommandResult): Record<string, unknown> {
+  return {
+    command: result.args,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    stdoutTruncated: result.stdoutTruncated,
+    stderrTruncated: result.stderrTruncated,
+    timedOut: result.timedOut,
   };
 }
 

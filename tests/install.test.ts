@@ -51,6 +51,8 @@ test("Dokku wrapper validates commands before execing Dokku", () => {
   expect(wrapper).toContain("nemo-agent: Dokku command is not allowlisted");
   expect(wrapper).toContain('exec dokku "$@"');
   expect(wrapper).toContain('[ "$1" = "logs" ]');
+  expect(wrapper).toContain('[ "$1" = "ps:restart" ]');
+  expect(wrapper).toContain('[ "$1" = "ps:rebuild" ]');
   expect(wrapper).not.toContain("config:set");
 });
 

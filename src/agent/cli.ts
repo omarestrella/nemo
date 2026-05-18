@@ -69,6 +69,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "state-dir": { type: "string" },
       ttl: { type: "string" },
       verbose: { type: "boolean" },
+      "write-command-timeout-ms": { type: "string" },
     },
   });
 

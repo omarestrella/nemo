@@ -20,13 +20,19 @@ export class NemoError extends Error {
   readonly code: NemoErrorCode;
   readonly status: number;
   readonly retryable: boolean;
+  readonly details: Record<string, unknown> | null;
 
-  constructor(code: NemoErrorCode, message: string, options: { status?: number; retryable?: boolean } = {}) {
+  constructor(
+    code: NemoErrorCode,
+    message: string,
+    options: { status?: number; retryable?: boolean; details?: Record<string, unknown> } = {},
+  ) {
     super(message);
     this.name = "NemoError";
     this.code = code;
     this.status = options.status ?? 500;
     this.retryable = options.retryable ?? false;
+    this.details = options.details ?? null;
   }
 }
 
@@ -43,11 +49,22 @@ export function toNemoError(error: unknown): NemoError {
 }
 
 export function errorBody(error: NemoError): object {
-  return {
+  const body: {
+    error: {
+      code: NemoErrorCode;
+      message: string;
+      retryable: boolean;
+      details?: Record<string, unknown>;
+    };
+  } = {
     error: {
       code: error.code,
       message: error.message,
       retryable: error.retryable,
     },
   };
+  if (error.details) {
+    body.error.details = error.details;
+  }
+  return body;
 }

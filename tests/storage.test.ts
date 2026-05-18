@@ -83,6 +83,50 @@ test("revoked credentials no longer authenticate", async () => {
   state.close();
 });
 
+test("read and write credentials do not grant each other's scopes", async () => {
+  const state = await openTestState();
+  const readCredential = state.issueCredential({
+    deviceName: "Read Device",
+    scope: "read",
+  });
+  const writeCredential = state.issueCredential({
+    deviceName: "Write Device",
+    scope: "write:apps",
+  });
+  const broadWriteCredential = state.issueCredential({
+    deviceName: "Broad Write Device",
+    scope: "write",
+  });
+
+  expect(state.authenticateCredential(readCredential.token, "read:status")).toBeTruthy();
+  expect(state.authenticateCredential(readCredential.token, "write:apps")).toBeNull();
+  expect(state.authenticateCredential(writeCredential.token, "write:apps")).toBeTruthy();
+  expect(state.authenticateCredential(writeCredential.token, "read:status")).toBeNull();
+  expect(state.authenticateCredential(broadWriteCredential.token, "write:apps")).toBeTruthy();
+  expect(state.authenticateCredential(broadWriteCredential.token, "read:status")).toBeNull();
+
+  state.close();
+});
+
+test("credential creation rejects unsupported scopes", async () => {
+  const state = await openTestState();
+
+  expect(() =>
+    state.issueCredential({
+      deviceName: "Bad Device",
+      scope: "read write",
+    }),
+  ).toThrow("Unsupported credential scope");
+
+  await expect(
+    state.createPairingSession({
+      scope: "config:set",
+    }),
+  ).rejects.toThrow("Unsupported credential scope");
+
+  state.close();
+});
+
 async function openTestState(): Promise<AgentState> {
   const dir = await mkdtemp(join(tmpdir(), "nemo-state-"));
   cleanupPaths.push(dir);

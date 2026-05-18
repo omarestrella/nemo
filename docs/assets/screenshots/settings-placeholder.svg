@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Nemo settings placeholder</title>
+  <desc id="desc">Placeholder screenshot for the Nemo settings view.</desc>
+  <rect width="960" height="600" fill="#f6f7f9"/>
+  <rect x="180" y="64" width="600" height="472" rx="16" fill="#ffffff" stroke="#d7dce2"/>
+  <text x="224" y="128" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="800" fill="#111827">Settings</text>
+  <g fill="#ffffff" stroke="#d7dce2">
+    <rect x="224" y="172" width="512" height="74" rx="10"/>
+    <rect x="224" y="266" width="512" height="74" rx="10"/>
+    <rect x="224" y="360" width="512" height="74" rx="10"/>
+  </g>
+  <g font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+    <text x="252" y="204" font-size="16" font-weight="700" fill="#111827">Paired host</text>
+    <text x="252" y="226" font-size="13" fill="#6b7280">dokku-host.local:7331</text>
+    <text x="252" y="298" font-size="16" font-weight="700" fill="#111827">Credential scope</text>
+    <text x="252" y="320" font-size="13" fill="#6b7280">read, read:logs, read:events</text>
+    <text x="252" y="392" font-size="16" font-weight="700" fill="#111827">Placeholder screenshot</text>
+    <text x="252" y="414" font-size="13" fill="#6b7280">Replace after the release UI is captured</text>
+  </g>
+  <rect x="604" y="188" width="92" height="28" rx="14" fill="#dcfce7"/>
+  <text x="650" y="207" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#166534">active</text>
+  <rect x="608" y="282" width="88" height="28" rx="14" fill="#eff6ff"/>
+  <text x="652" y="301" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">read-only</text>
+</svg>

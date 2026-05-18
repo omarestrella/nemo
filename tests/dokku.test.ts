@@ -20,7 +20,7 @@ test("validates conservative Dokku app names", () => {
   expect(isValidAppName("api;rm")).toBe(false);
 });
 
-test("allows only read-only Dokku commands", () => {
+test("allows only bounded Dokku commands", () => {
   expect(isAllowedDokkuArgs(["--quiet", "apps:list"])).toBe(true);
   expect(isAllowedDokkuArgs(["urls", "api"])).toBe(true);
   expect(isAllowedDokkuArgs(["ps:report", "api", "--running"])).toBe(true);
@@ -30,6 +30,12 @@ test("allows only read-only Dokku commands", () => {
   expect(isAllowedDokkuArgs(["logs", "api", "--num", "1.5"])).toBe(false);
   expect(isAllowedDokkuArgs(["logs", "api", "--num", "9999"])).toBe(false);
   expect(isAllowedDokkuArgs(["events"])).toBe(true);
+  expect(isAllowedDokkuArgs(["ps:restart", "api"])).toBe(true);
+  expect(isAllowedDokkuArgs(["ps:rebuild", "api"])).toBe(true);
+  expect(isAllowedDokkuArgs(["ps:restart"])).toBe(false);
+  expect(isAllowedDokkuArgs(["ps:restart", "Api"])).toBe(false);
+  expect(isAllowedDokkuArgs(["ps:restart", "api", "--all"])).toBe(false);
+  expect(isAllowedDokkuArgs(["ps:scale", "api", "web=2"])).toBe(false);
   expect(isAllowedDokkuArgs(["config:set", "api", "A=B"])).toBe(false);
   expect(() => assertAllowedDokkuArgs(["run", "api", "bash"])).toThrow();
 });

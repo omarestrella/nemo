@@ -16,12 +16,21 @@ import {
   timingSafeEqualHex,
   verifyPairingCode,
 } from "./crypto";
+import { NemoError } from "./errors";
 import type { CredentialScope, PublicCredential, PublicPairingSession } from "./types";
 
 export const DEFAULT_STATE_DIR = "/var/lib/nemo-agent";
 export const DEFAULT_CONFIG_PATH = "/etc/nemo-agent/config.json";
 
 const SERVER_SECRET_BYTES = 32;
+const SUPPORTED_CREDENTIAL_SCOPES = new Set<string>([
+  "read",
+  "read:status",
+  "read:logs",
+  "read:events",
+  "write",
+  "write:apps",
+]);
 
 interface MetadataRow {
   value: string;
@@ -225,7 +234,7 @@ export class AgentState {
     const now = new Date();
     const ttlSeconds = options.ttlSeconds ?? 600;
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
-    const scope = options.scope ?? "read";
+    const scope = normalizeCredentialScope(options.scope ?? "read");
 
     this.db
       .query(
@@ -318,7 +327,7 @@ export class AgentState {
   issueCredential(options: { deviceName: string; scope?: string }): { token: string; record: PublicCredential } {
     return this.createCredential({
       deviceName: options.deviceName.trim() || "Nemo Device",
-      scope: options.scope ?? "read",
+      scope: normalizeCredentialScope(options.scope ?? "read"),
     });
   }
 
@@ -371,6 +380,7 @@ export class AgentState {
   }
 
   private createCredential(options: { deviceName: string; scope: string }): { token: string; record: PublicCredential } {
+    const scope = normalizeCredentialScope(options.scope);
     const id = makeId();
     const secret = randomHex(32);
     const token = makeCredentialToken(id, secret);
@@ -384,13 +394,13 @@ export class AgentState {
         VALUES (?, ?, ?, ?, ?)
       `,
       )
-      .run(id, digest, options.scope, options.deviceName, createdAt);
+      .run(id, digest, scope, options.deviceName, createdAt);
 
     return {
       token,
       record: {
         id,
-        scope: options.scope,
+        scope,
         deviceName: options.deviceName,
         createdAt,
         lastUsedAt: null,
@@ -398,6 +408,15 @@ export class AgentState {
       },
     };
   }
+}
+
+function normalizeCredentialScope(scope: string): CredentialScope {
+  if (SUPPORTED_CREDENTIAL_SCOPES.has(scope)) {
+    return scope as CredentialScope;
+  }
+  throw new NemoError("BAD_REQUEST", "Unsupported credential scope", {
+    status: 400,
+  });
 }
 
 function publicPairingSession(row: PairingRow): PublicPairingSession {

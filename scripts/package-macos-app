@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+project="$root_dir/macos/Nemo/Nemo.xcodeproj"
+scheme="${NEMO_XCODE_SCHEME:-Nemo}"
+configuration="${NEMO_XCODE_CONFIGURATION:-Release}"
+build_dir="${NEMO_MACOS_BUILD_DIR:-$root_dir/dist/macos}"
+release_dir="${NEMO_RELEASE_DIR:-$root_dir/dist/release}"
+archive_path="$build_dir/Nemo.xcarchive"
+app_path="$archive_path/Products/Applications/Nemo.app"
+notary_zip="$build_dir/Nemo-notary.zip"
+final_zip="$release_dir/Nemo.zip"
+version="${NEMO_VERSION:-}"
+build_number="${NEMO_BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-1}}"
+require_signing="${NEMO_REQUIRE_SIGNING:-0}"
+
+fail() {
+  printf 'package-macos-app: %s\n' "$1" >&2
+  exit 1
+}
+
+info() {
+  printf 'package-macos-app: %s\n' "$1"
+}
+
+if [ -z "$version" ]; then
+  tag="$(git -C "$root_dir" describe --tags --exact-match 2>/dev/null || true)"
+  if [ -n "$tag" ]; then
+    version="${tag#v}"
+  else
+    version="0.1.0-dev"
+  fi
+fi
+
+if [ "$require_signing" = "1" ] && [ -z "${APPLE_TEAM_ID:-}" ]; then
+  fail "APPLE_TEAM_ID is required when NEMO_REQUIRE_SIGNING=1"
+fi
+
+if [ "$require_signing" = "1" ] && [ -z "${NOTARYTOOL_KEYCHAIN_PROFILE:-}" ]; then
+  if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+    fail "APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD are required when NEMO_REQUIRE_SIGNING=1"
+  fi
+fi
+
+rm -rf "$build_dir"
+mkdir -p "$build_dir" "$release_dir"
+
+xcode_args=(
+  -project "$project"
+  -scheme "$scheme"
+  -configuration "$configuration"
+  -destination "generic/platform=macOS"
+  -archivePath "$archive_path"
+  archive
+  "MARKETING_VERSION=$version"
+  "CURRENT_PROJECT_VERSION=$build_number"
+)
+
+if [ -n "${APPLE_TEAM_ID:-}" ]; then
+  identity="${NEMO_CODE_SIGN_IDENTITY:-Developer ID Application}"
+  info "building signed archive with identity '$identity'"
+  xcode_args+=(
+    "CODE_SIGN_STYLE=Manual"
+    "DEVELOPMENT_TEAM=$APPLE_TEAM_ID"
+    "CODE_SIGN_IDENTITY=$identity"
+    "OTHER_CODE_SIGN_FLAGS=--timestamp"
+  )
+else
+  info "building unsigned archive"
+  xcode_args+=("CODE_SIGNING_ALLOWED=NO")
+fi
+
+xcodebuild "${xcode_args[@]}"
+
+[ -d "$app_path" ] || fail "archive did not produce Nemo.app"
+
+ditto -c -k --sequesterRsrc --keepParent "$app_path" "$notary_zip"
+
+if [ "${NEMO_SKIP_NOTARIZATION:-0}" = "1" ]; then
+  if [ "$require_signing" = "1" ]; then
+    fail "NEMO_REQUIRE_SIGNING=1 cannot be used with NEMO_SKIP_NOTARIZATION=1"
+  fi
+  info "skipping notarization"
+elif [ -n "${NOTARYTOOL_KEYCHAIN_PROFILE:-}" ]; then
+  info "submitting app to Apple notarization with keychain profile"
+  xcrun notarytool submit "$notary_zip" \
+    --keychain-profile "$NOTARYTOOL_KEYCHAIN_PROFILE" \
+    --wait
+  xcrun stapler staple "$app_path"
+  xcrun stapler validate "$app_path"
+elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+  info "submitting app to Apple notarization with Apple ID credentials"
+  xcrun notarytool submit "$notary_zip" \
+    --apple-id "$APPLE_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    --team-id "$APPLE_TEAM_ID" \
+    --wait
+  xcrun stapler staple "$app_path"
+  xcrun stapler validate "$app_path"
+else
+  if [ "$require_signing" = "1" ]; then
+    fail "notarization credentials are required when NEMO_REQUIRE_SIGNING=1"
+  fi
+  info "notarization credentials were not provided; leaving app unnotarized"
+fi
+
+rm -f "$final_zip"
+ditto -c -k --sequesterRsrc --keepParent "$app_path" "$final_zip"
+info "packaged $final_zip"

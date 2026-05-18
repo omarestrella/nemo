@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if ! command -v swiftformat >/dev/null 2>&1; then
+  echo "pre-commit: swiftformat is required. Install it with: brew install swiftformat" >&2
+  exit 1
+fi
+
+staged_files="$(mktemp)"
+swift_files="$(mktemp)"
+trap 'rm -f "$staged_files" "$swift_files"' EXIT
+
+git diff --cached --name-only -z --diff-filter=ACMR -- macos > "$staged_files"
+
+while IFS= read -r -d '' file; do
+  case "$file" in
+    *.swift)
+      printf '%s\0' "$file" >> "$swift_files"
+      ;;
+  esac
+done < "$staged_files"
+
+if [ ! -s "$swift_files" ]; then
+  exit 0
+fi
+
+has_partial_staging=0
+while IFS= read -r -d '' file; do
+  if ! git diff --quiet -- "$file"; then
+    echo "pre-commit: $file has unstaged changes; stage or stash them before committing formatted Swift." >&2
+    has_partial_staging=1
+  fi
+done < "$swift_files"
+
+if [ "$has_partial_staging" -ne 0 ]; then
+  exit 1
+fi
+
+xargs -0 swiftformat --config .swiftformat < "$swift_files"
+xargs -0 git add -- < "$swift_files"

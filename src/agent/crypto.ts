@@ -94,5 +94,8 @@ export function scopeAllows(granted: string, required: CredentialScope): boolean
   if (scopes.includes(required)) {
     return true;
   }
-  return scopes.includes("read") && required.startsWith("read:");
+  if (scopes.includes("read") && required.startsWith("read:")) {
+    return true;
+  }
+  return scopes.includes("write") && required.startsWith("write:");
 }

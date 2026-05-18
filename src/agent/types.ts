@@ -5,7 +5,9 @@ export type CredentialScope =
   | "read"
   | "read:status"
   | "read:logs"
-  | "read:events";
+  | "read:events"
+  | "write"
+  | "write:apps";
 
 export interface ServerMeta {
   apiVersion: string;
@@ -44,6 +46,20 @@ export interface AppLogs {
   lines: number;
   logs: LogLine[];
   truncated: boolean;
+}
+
+export type AppWriteAction = "restart" | "rebuild";
+
+export interface AppWriteActionResult {
+  status: "ok";
+  app: string;
+  action: AppWriteAction;
+  command: string[];
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
 }
 
 export interface PlatformEvent {
@@ -90,6 +106,8 @@ export interface DokkuPlatform {
   getApp(app: string): Promise<AppSummary>;
   getAppLogs(app: string, lines: number): Promise<AppLogs>;
   getEvents(limit: number): Promise<PlatformEvents>;
+  restartApp(app: string): Promise<AppWriteActionResult>;
+  rebuildApp(app: string): Promise<AppWriteActionResult>;
 }
 
 export interface PublicPairingSession {

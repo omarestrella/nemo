@@ -8,6 +8,9 @@
     "start": "bun src/index.ts serve",
     "test": "bun test",
     "test:docker": "bun test tests/docker/dokku-agent.test.ts",
+    "format:swift": "scripts/format-swift",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "package:macos": "scripts/package-macos-app",
     "build:linux-x64": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/nemo-agent-linux-x64",
     "build:linux-arm64": "bun build --compile --target=bun-linux-arm64 src/index.ts --outfile dist/nemo-agent-linux-arm64"
   },

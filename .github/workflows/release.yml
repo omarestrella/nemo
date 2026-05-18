@@ -1,0 +1,196 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.0 or v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  agent:
+    name: Build agent
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            raw="${{ inputs.version }}"
+            version="${raw#v}"
+            tag="v$version"
+          else
+            tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
+          fi
+
+          if [ -z "$version" ] || [ "$version" = "$tag" ]; then
+            echo "::error::Release versions must use a v-prefixed tag or a semver workflow input."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun test
+
+      - name: Build Linux release binaries
+        run: |
+          bun run build:linux-x64
+          bun run build:linux-arm64
+
+      - name: Collect agent assets
+        run: |
+          mkdir -p dist/release
+          cp dist/nemo-agent-linux-x64 dist/release/nemo-agent-linux-x64
+          cp dist/nemo-agent-linux-arm64 dist/release/nemo-agent-linux-arm64
+
+      - name: Upload agent assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-agent
+          path: dist/release/*
+          if-no-files-found: error
+
+  macos:
+    name: Build macOS app
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            raw="${{ inputs.version }}"
+            version="${raw#v}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Apple signing certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12_BASE64" ]; then
+            echo "::warning::APPLE_CERTIFICATE_P12_BASE64 is not configured."
+            exit 0
+          fi
+
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "::error::APPLE_CERTIFICATE_PASSWORD is required when a certificate is configured."
+            exit 1
+          fi
+
+          keychain_password="${APPLE_KEYCHAIN_PASSWORD:-$GITHUB_RUN_ID}"
+          certificate_path="$RUNNER_TEMP/nemo-signing-certificate.p12"
+          keychain_path="$RUNNER_TEMP/nemo-signing.keychain-db"
+
+          if ! printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path" 2>/dev/null; then
+            printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
+          fi
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | sed 's/"//g')
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+
+      - name: Package signed and notarized app
+        env:
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NEMO_BUILD_NUMBER: ${{ github.run_number }}
+          NEMO_REQUIRE_SIGNING: "1"
+          NEMO_VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/package-macos-app
+
+      - name: Upload macOS asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/release/Nemo.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - agent
+      - macos
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/release
+
+      - name: Create checksums
+        run: |
+          cd dist/release
+          sha256sum Nemo.zip nemo-agent-linux-arm64 nemo-agent-linux-x64 > SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.agent.outputs.tag }}
+          VERSION: ${{ needs.agent.outputs.version }}
+        run: |
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<NOTES
+          Nemo $VERSION
+
+          Release assets:
+          - Nemo.zip: signed and notarized macOS app for Homebrew cask installs.
+          - nemo-agent-linux-x64: Linux x64 agent binary.
+          - nemo-agent-linux-arm64: Linux arm64 agent binary.
+          - SHA256SUMS: checksums for the release assets.
+          NOTES
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/release/* --clobber
+          else
+            gh release create "$TAG" dist/release/* \
+              --target "$GITHUB_SHA" \
+              --title "Nemo $VERSION" \
+              --notes-file "$notes_file"
+          fi
