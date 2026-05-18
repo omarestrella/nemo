@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nemo</title>
+    <meta
+      name="description"
+      content="Nemo is a macOS menu bar utility for monitoring Dokku apps through a small paired host agent."
+    >
+    <link rel="canonical" href="https://omarestrella.github.io/nemo/">
+    <link rel="icon" href="assets/images/nemo-app-icon.png">
+    <link rel="apple-touch-icon" href="assets/images/nemo-app-icon.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <nav aria-label="Primary">
+          <a class="brand" href="./">
+            <img src="assets/images/nemo-app-icon.png" alt="" width="44" height="44">
+            <span>Nemo</span>
+          </a>
+          <div class="nav-links">
+            <a href="https://github.com/omarestrella/nemo">GitHub</a>
+            <a href="https://github.com/omarestrella/nemo/releases">Releases</a>
+          </div>
+        </nav>
+
+        <div class="hero-content">
+          <p class="eyebrow">macOS menu bar for Dokku</p>
+          <h1>Keep an eye on your Dokku apps from the menu bar.</h1>
+          <p class="lede">
+            Nemo pairs a native macOS app with a small read-only Linux agent
+            on your Dokku host, so status, URLs, HTTPS state, logs, and
+            platform events are always close by.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="#install">Install</a>
+            <a class="button secondary" href="https://github.com/omarestrella/nemo">View source</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Install</p>
+          <h2>Two pieces, one pairing flow.</h2>
+        </div>
+
+        <div class="install-grid">
+          <article>
+            <h3>macOS app</h3>
+            <p>Install the signed release build with the Homebrew cask from the Nemo repo.</p>
+            <pre><code>brew tap omarestrella/nemo https://github.com/omarestrella/nemo
+brew install --cask omarestrella/nemo/nemo</code></pre>
+          </article>
+
+          <article>
+            <h3>Dokku host agent</h3>
+            <p>Run the Linux installer on the Dokku host to install the agent and systemd service.</p>
+            <pre><code>curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh</code></pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="section details">
+        <div>
+          <p class="eyebrow">Security model</p>
+          <h2>Read-only by default.</h2>
+        </div>
+        <p>
+          The long-running service runs as a dedicated <code>nemo-agent</code>
+          user. Root is only needed for install and repair. Paired clients use
+          bearer credentials, and untrusted remote access should go through
+          HTTPS, Tailscale Serve, or a user-managed SSH tunnel.
+        </p>
+      </section>
+
+      <section class="screenshots" aria-label="Screenshot placeholders">
+        <img src="assets/screenshots/app-detail-placeholder.svg" alt="Placeholder app detail screenshot">
+        <img src="assets/screenshots/settings-placeholder.svg" alt="Placeholder settings screenshot">
+      </section>
+    </main>
+  </body>
+</html>

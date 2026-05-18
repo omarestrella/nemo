@@ -48,7 +48,7 @@ On the Dokku host, install the latest released Linux agent and systemd
 integration:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | sh
+curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh
 ```
 
 The installer detects `x86_64` and `arm64` Linux hosts, installs
@@ -59,7 +59,7 @@ installs the constrained Dokku wrapper, enables the systemd service, and runs
 Useful installer environment variables:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | \
+curl -fsSL https://omarestrella.github.io/nemo/install.sh | \
   NEMO_VERSION=v0.1.0 NEMO_HOST=127.0.0.1 NEMO_INSTALL_ONLY=1 sh
 ```
 
@@ -147,6 +147,7 @@ Release setup and Apple signing details are in
 
 - [Exposure and packaging](docs/exposure-and-packaging.md)
 - [Releasing](docs/releasing.md)
+- [Project website](https://omarestrella.github.io/nemo/)
 - [Project plan index](docs/index.md)
 
 ## License

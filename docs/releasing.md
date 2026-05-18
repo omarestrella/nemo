@@ -21,6 +21,23 @@ The root `install.sh` downloads the matching Linux binary from the latest
 release by default. The `Casks/nemo.rb` cask downloads `Nemo.zip` from the
 latest release.
 
+## Project Website
+
+The `Pages` workflow publishes a static project site to:
+
+```text
+https://omarestrella.github.io/nemo/
+```
+
+The workflow prepares a Pages artifact from `site/`, copies the shared app icon
+and placeholder screenshots into the artifact, and exposes the root installer at:
+
+```text
+https://omarestrella.github.io/nemo/install.sh
+```
+
+Use the Pages URL for public install snippets.
+
 ## Apple Signing
 
 Homebrew can install the cask without a separate tap repository because this
@@ -96,7 +113,7 @@ values per release.
 The installer is intentionally static and curlable:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | sh
+curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh
 ```
 
 It supports these environment variables:

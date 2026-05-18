@@ -18,6 +18,6 @@ cask "nemo" do
 
   caveats <<~EOS
     Install the Dokku host agent with:
-      curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | sh
+      curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh
   EOS
 end

@@ -192,7 +192,7 @@ not store SSH private keys.
 The public Linux install path is the static root installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/omarestrella/nemo/main/install.sh | sh
+curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh
 ```
 
 That script downloads the matching `nemo-agent-linux-x64` or
