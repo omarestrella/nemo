@@ -136,6 +136,7 @@ jobs:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -z "$APPLE_CERTIFICATE_P12_BASE64" ]; then
             echo "::warning::APPLE_CERTIFICATE_P12_BASE64 is not configured."
@@ -165,11 +166,20 @@ jobs:
             -f pkcs12 \
             -k "$keychain_path"
           security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | sed 's/"//g')
+          security default-keychain -d user -s "$keychain_path"
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
             -s \
             -k "$keychain_password" \
             "$keychain_path"
+
+          identities="$(security find-identity -v -p codesigning "$keychain_path" || true)"
+          printf '%s\n' "$identities"
+          if ! printf '%s\n' "$identities" | grep -F "Developer ID Application:" | grep -F "($APPLE_TEAM_ID)" >/dev/null; then
+            echo "::error::Imported certificate is not a Developer ID Application identity for APPLE_TEAM_ID."
+            echo "::error::Export the Developer ID Application certificate with its private key as a .p12, base64-encode it, and save it as APPLE_CERTIFICATE_P12_BASE64."
+            exit 1
+          fi
 
       - name: Package signed and notarized app
         env:
