@@ -22,12 +22,9 @@ signed Homebrew cask distribution once Apple signing credentials are configured.
 
 ## Screenshots
 
-Placeholder screenshots are checked in until the first public app screenshots
-are ready.
-
-| Menu bar | App detail | Settings |
-| --- | --- | --- |
-| ![Nemo menu placeholder](docs/assets/screenshots/menu-placeholder.svg) | ![Nemo app detail placeholder](docs/assets/screenshots/app-detail-placeholder.svg) | ![Nemo settings placeholder](docs/assets/screenshots/settings-placeholder.svg) |
+<p align="center">
+  <img src="docs/assets/screenshots/nemo-menu.png" alt="Nemo macOS menu showing app status, HTTPS state, logs, events, and links" width="485">
+</p>
 
 ## Install
 
