@@ -6,7 +6,7 @@
     <title>Nemo</title>
     <meta
       name="description"
-      content="Nemo is a macOS menu bar utility for monitoring Dokku apps through a small paired host agent."
+      content="Nemo is a macOS menu bar app for monitoring your apps through a small paired host agent."
     >
     <link rel="canonical" href="https://omarestrella.github.io/nemo/">
     <link rel="icon" href="assets/images/nemo-app-icon.png">
@@ -28,12 +28,12 @@
         </nav>
 
         <div class="hero-content">
-          <p class="eyebrow">macOS menu bar for Dokku</p>
-          <h1>Keep an eye on your Dokku apps from the menu bar.</h1>
+          <p class="eyebrow">macOS menu bar monitoring</p>
+          <h1>Keep production close without keeping a terminal open.</h1>
           <p class="lede">
-            Nemo pairs a native macOS app with a small read-only Linux agent
-            on your Dokku host, so status, URLs, HTTPS state, logs, and
-            platform events are always close by.
+            Nemo pairs a native macOS app with a small Linux agent on your
+            server, then keeps app health, URLs, HTTPS state, logs, and recent
+            platform events one click away.
           </p>
           <div class="actions">
             <a class="button primary" href="#install">Install</a>
@@ -45,7 +45,12 @@
       <section id="install" class="section">
         <div class="section-heading">
           <p class="eyebrow">Install</p>
-          <h2>Two pieces, one pairing flow.</h2>
+          <h2>A Mac app, a host agent, and a pairing flow.</h2>
+          <p>
+            Install Nemo on your Mac, install the agent on the server, then
+            pair them once from the menu bar. The app stores its credential in
+            Keychain and talks to the agent over the endpoint you choose.
+          </p>
         </div>
 
         <div class="install-grid">
@@ -57,29 +62,60 @@ brew install --cask omarestrella/nemo/nemo</code></pre>
           </article>
 
           <article>
-            <h3>Dokku host agent</h3>
-            <p>Run the Linux installer on the Dokku host to install the agent and systemd service.</p>
+            <h3>Linux host agent</h3>
+            <p>Run the installer on the server to install the agent, service account, and systemd unit.</p>
             <pre><code>curl -fsSL https://omarestrella.github.io/nemo/install.sh | sh</code></pre>
           </article>
         </div>
       </section>
 
-      <section class="section details">
-        <div>
+      <section class="section copy-grid">
+        <div class="section-heading">
+          <p class="eyebrow">Workflow</p>
+          <h2>Built for quick checks, not a new dashboard habit.</h2>
+        </div>
+
+        <div class="copy-list">
+          <article>
+            <h3>Scan the current state.</h3>
+            <p>
+              See which apps are running, which URLs are attached, and whether
+              HTTPS is configured before you reach for a shell.
+            </p>
+          </article>
+
+          <article>
+            <h3>Open the context you need.</h3>
+            <p>
+              Jump from the menu bar into app URLs, logs, recent platform
+              events, or the host connection settings without digging through
+              command history.
+            </p>
+          </article>
+
+          <article>
+            <h3>Pair from the browser.</h3>
+            <p>
+              Start from Nemo, approve the request on the host, and let the Mac
+              app finish the exchange. No long-lived setup token needs to be
+              copied into notes.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section split">
+        <div class="section-heading">
           <p class="eyebrow">Security model</p>
           <h2>Read-only by default.</h2>
         </div>
         <p>
           The long-running service runs as a dedicated <code>nemo-agent</code>
-          user. Root is only needed for install and repair. Paired clients use
-          bearer credentials, and untrusted remote access should go through
-          HTTPS or Tailscale Serve.
+          user. Root is only needed for install and repair, and server commands
+          go through a constrained wrapper. Paired clients use bearer
+          credentials, and untrusted remote access should go through HTTPS or a
+          private network transport.
         </p>
-      </section>
-
-      <section class="screenshots" aria-label="Screenshot placeholders">
-        <img src="assets/screenshots/app-detail-placeholder.svg" alt="Placeholder app detail screenshot">
-        <img src="assets/screenshots/settings-placeholder.svg" alt="Placeholder settings screenshot">
       </section>
     </main>
   </body>

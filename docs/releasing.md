@@ -29,8 +29,8 @@ The `Pages` workflow publishes a static project site to:
 https://omarestrella.github.io/nemo/
 ```
 
-The workflow prepares a Pages artifact from `site/`, copies the shared app icon
-and placeholder screenshots into the artifact, and exposes the root installer at:
+The workflow prepares a Pages artifact from `site/`, copies the shared app icon,
+and exposes the root installer at:
 
 ```text
 https://omarestrella.github.io/nemo/install.sh

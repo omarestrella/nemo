@@ -30,10 +30,9 @@ jobs:
         shell: bash
         run: |
           rm -rf public
-          mkdir -p public/assets/images public/assets/screenshots
+          mkdir -p public/assets/images
           cp -R site/. public/
           cp assets/images/nemo-app-icon.png public/assets/images/nemo-app-icon.png
-          cp docs/assets/screenshots/*.svg public/assets/screenshots/
           cp install.sh public/install.sh
           chmod 0644 public/install.sh
           touch public/.nojekyll
