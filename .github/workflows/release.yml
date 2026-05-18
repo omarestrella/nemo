@@ -15,16 +15,13 @@ permissions:
   contents: write
 
 jobs:
-  agent:
-    name: Build agent
-    runs-on: ubuntu-latest
+  prepare:
+    name: Resolve release version
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
       - name: Resolve version
         id: version
         shell: bash
@@ -43,8 +40,22 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$version" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?([+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release version must look like 0.1.0, optionally with a prerelease or build suffix."
+            exit 1
+          fi
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  agent:
+    name: Build agent
+    runs-on: ubuntu-24.04
+    needs:
+      - prepare
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -52,13 +63,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
-        run: bun test
+      - name: Run unit tests
+        run: bun test tests/*.test.ts
 
       - name: Build Linux release binaries
         run: |
           bun run build:linux-x64
           bun run build:linux-arm64
+
+      - name: Verify Linux release binaries
+        run: |
+          test -x dist/nemo-agent-linux-x64
+          test -x dist/nemo-agent-linux-arm64
+          file dist/nemo-agent-linux-x64 dist/nemo-agent-linux-arm64
+          dist/nemo-agent-linux-x64 --help >/tmp/nemo-agent-help.txt
+          test -s /tmp/nemo-agent-help.txt
 
       - name: Collect agent assets
         run: |
@@ -75,22 +94,41 @@ jobs:
 
   macos:
     name: Build macOS app
-    runs-on: macos-latest
+    runs-on: macos-26
+    needs:
+      - prepare
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Resolve version
-        id: version
-        shell: bash
+      - name: Show Xcode version
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            raw="${{ inputs.version }}"
-            version="${raw#v}"
-          else
-            version="${GITHUB_REF_NAME#v}"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          sw_vers
+          xcodebuild -version
+
+      - name: Validate Apple release secrets
+        shell: bash
+        env:
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for name in \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_CERTIFICATE_P12_BASE64 \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Configure Apple signing certificate
         shell: bash
@@ -140,8 +178,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NEMO_BUILD_NUMBER: ${{ github.run_number }}
           NEMO_REQUIRE_SIGNING: "1"
-          NEMO_VERSION: ${{ steps.version.outputs.version }}
+          NEMO_VERSION: ${{ needs.prepare.outputs.version }}
         run: scripts/package-macos-app
+
+      - name: Verify signed macOS package
+        run: |
+          test -f dist/release/Nemo.zip
+          rm -rf "$RUNNER_TEMP/nemo-release"
+          mkdir -p "$RUNNER_TEMP/nemo-release"
+          ditto -x -k dist/release/Nemo.zip "$RUNNER_TEMP/nemo-release"
+          test -d "$RUNNER_TEMP/nemo-release/Nemo.app"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/nemo-release/Nemo.app"
+          xcrun stapler validate "$RUNNER_TEMP/nemo-release/Nemo.app"
+          spctl --assess --type execute --verbose "$RUNNER_TEMP/nemo-release/Nemo.app"
 
       - name: Upload macOS asset
         uses: actions/upload-artifact@v4
@@ -152,8 +201,9 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
+      - prepare
       - agent
       - macos
     steps:
@@ -172,8 +222,8 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.agent.outputs.tag }}
-          VERSION: ${{ needs.agent.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           notes_file="$(mktemp)"
           cat > "$notes_file" <<NOTES
