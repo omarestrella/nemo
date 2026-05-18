@@ -25,7 +25,7 @@ const text = {
 const openNemo = document.querySelector("#open-nemo");
 
 initialize().catch((error) => {
-  showLocked(error instanceof Error ? error.message : "Unable to load this pairing request.");
+  showLocked(error instanceof Error ? error.message : "Unable to load this request.");
 });
 
 approve.addEventListener("click", () => complete("approve"));
@@ -33,7 +33,7 @@ deny.addEventListener("click", () => complete("deny"));
 
 async function initialize() {
   if (!challenge) {
-    showLocked("Browser pairing is only available after Nemo creates a short-lived challenge for this endpoint.");
+    showLocked("Open this page from Nemo to approve a new pairing request.");
     return;
   }
 
@@ -41,15 +41,16 @@ async function initialize() {
     headers: { accept: "application/json" },
   });
   if (!response.ok) {
-    showLocked("This pairing request is missing, expired, or already used.");
+    showLocked("This request expired or was already used. Start pairing again from Nemo.");
     return;
   }
 
   const payload = await response.json();
   shell.dataset.state = "ready";
   text.stateLabel.textContent = "Pairing request";
-  text.headline.textContent = "Pair this device with Nemo";
-  text.message.hidden = true;
+  text.headline.textContent = "Approve Nemo on this Mac";
+  text.message.textContent = "Approve only if this is the host you meant to connect.";
+  text.message.hidden = false;
   text.endpoint.textContent = payload.endpoint;
   text.expires.textContent = formatTime(payload.expiresAt);
   deviceName.value = payload.deviceName || "Nemo Mac";
@@ -74,7 +75,7 @@ async function complete(decision) {
   });
 
   if (!response.ok) {
-    showLocked("This pairing request is no longer available. Start browser pairing again from Nemo.");
+    showLocked("This request expired before it could be approved. Start pairing again from Nemo.");
     return;
   }
 
@@ -85,9 +86,9 @@ async function complete(decision) {
   resultPanel.hidden = false;
 
   if (payload.status === "denied") {
-    text.resultLabel.textContent = "Pairing denied";
-    text.resultHeadline.textContent = "Pairing was denied";
-    text.resultMessage.textContent = "Start browser pairing from Nemo when you are ready to try again.";
+    text.resultLabel.textContent = "Canceled";
+    text.resultHeadline.textContent = "Pairing canceled";
+    text.resultMessage.textContent = "No credential was created. Start pairing from Nemo when you want to try again.";
     openNemo.hidden = true;
     text.manualFallback.textContent = "";
     return;
@@ -95,14 +96,14 @@ async function complete(decision) {
 
   text.resultLabel.textContent = "Approved";
   text.resultHeadline.textContent = "Return to Nemo";
-  text.resultMessage.textContent = "Nemo will finish pairing automatically after it sees this approval.";
+  text.resultMessage.textContent = "You can safely close this browser window.";
   openNemo.hidden = true;
   text.manualFallback.textContent = "";
 }
 
 function showLocked(message) {
   shell.dataset.state = "locked";
-  text.stateLabel.textContent = "Pairing locked";
+  text.stateLabel.textContent = "Request unavailable";
   text.headline.textContent = "Start from Nemo";
   text.message.textContent = message;
   text.message.hidden = false;
@@ -110,7 +111,7 @@ function showLocked(message) {
   resultPanel.hidden = true;
   details.hidden = false;
   text.endpoint.textContent = window.location.origin;
-  text.expires.textContent = "No active challenge";
+  text.expires.textContent = "No active request";
 }
 
 function formatTime(value) {

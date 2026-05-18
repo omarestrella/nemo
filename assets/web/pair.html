@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Pair Nemo</title>
+        <title>Approve Nemo Pairing</title>
         <link rel="stylesheet" href="/pair.css" />
     </head>
     <body>
@@ -12,16 +12,15 @@
                 <img src="/assets/nemo-mark.png" alt="" />
                 <div>
                     <strong>Nemo</strong>
-                    <span>Begin pairing</span>
+                    <span>Pair this Mac</span>
                 </div>
             </header>
 
             <section class="panel status-panel" id="request-panel">
                 <p class="eyebrow" id="state-label">Checking request</p>
-                <h1 id="headline">Loading pairing request</h1>
+                <h1 id="headline">Looking for an active request</h1>
                 <p class="lede" id="message">
-                    Nemo is checking whether this browser session was started
-                    from the app.
+                    This page only works when it is opened from Nemo.
                 </p>
                 <dl id="details" hidden>
                     <div>
@@ -30,7 +29,7 @@
                     </div>
                     <div>
                         <dt>Access</dt>
-                        <dd>Read-only Dokku status</dd>
+                        <dd>Read-only host status</dd>
                     </div>
                     <div>
                         <dt>Expires</dt>
@@ -53,21 +52,20 @@
                     <button class="primary" id="approve" type="button">
                         Approve
                     </button>
-                    <button id="deny" type="button">Deny</button>
+                    <button id="deny" type="button">Cancel</button>
                 </div>
             </section>
 
             <section class="panel result-panel" id="result-panel" hidden>
                 <p class="eyebrow" id="result-label">Approved</p>
-                <h1 id="result-headline">Open Nemo to finish pairing</h1>
+                <h1 id="result-headline">Return to Nemo</h1>
                 <p class="lede" id="result-message"></p>
                 <a class="button primary" id="open-nemo" href="#">Open Nemo</a>
                 <p class="hint" id="manual-fallback"></p>
             </section>
 
             <p class="footnote" id="footnote">
-                Do not approve this page unless you just started pairing from
-                Nemo.
+                Only approve if you just opened this page from Nemo on your Mac.
             </p>
         </main>
         <script type="module" src="/pair.js"></script>

@@ -84,7 +84,7 @@ test("browser pairing page approves a verifier-bound credential exchange", async
   const normalizedPageHtml = pageHtml.replace(/\s+/g, " ");
   expect(pageHtml).toContain('rel="stylesheet"');
   expect(pageHtml).toContain('href="/pair.css"');
-  expect(normalizedPageHtml).toContain("started from the app");
+  expect(normalizedPageHtml).toContain("opened from Nemo");
 
   const missingChallenge = await fetch(`${url}/v1/pairing/browser/challenge?challenge=missing`);
   expect(missingChallenge.status).toBe(404);
